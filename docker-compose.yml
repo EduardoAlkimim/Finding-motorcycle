@@ -1,0 +1,66 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: autoparts_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: autoparts
+      POSTGRES_PASSWORD: autoparts123
+      POSTGRES_DB: autoparts_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - autoparts_net
+
+  traccar:
+    image: traccar/traccar:latest
+    container_name: autoparts_traccar
+    restart: unless-stopped
+    ports:
+      - "8082:8082"   # painel web do Traccar
+      - "5055:5055"   # protocolo OsmAnd (app de teste no celular)
+      - "5001:5001"   # protocolo GT06 (tracker físico J16)
+    volumes:
+      - traccar_data:/opt/traccar/data
+      - ./docker/traccar.xml:/opt/traccar/conf/traccar.xml
+    networks:
+      - autoparts_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: autoparts_backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://autoparts:autoparts123@postgres:5432/autoparts_db
+      JWT_SECRET: troque_em_producao_por_chave_segura
+      JWT_EXPIRES_IN: 8h
+      TRACCAR_URL: http://traccar:8082
+      TRACCAR_USER: admin
+      TRACCAR_PASSWORD: admin
+      OSRM_URL: https://router.project-osrm.org
+      FRONTEND_URL: http://localhost:5173
+      PORT: 3000
+      NODE_ENV: production
+      LOJA_LAT: -15.7942
+      LOJA_LNG: -47.8825
+    depends_on:
+      - postgres
+      - traccar
+    networks:
+      - autoparts_net
+
+volumes:
+  postgres_data:
+  traccar_data:
+
+networks:
+  autoparts_net:
+    driver: bridge

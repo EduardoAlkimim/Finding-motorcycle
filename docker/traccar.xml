@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE properties SYSTEM 'http://java.sun.com/dtd/properties.dtd'>
+<properties>
+    <entry key='database.driver'>org.postgresql.Driver</entry>
+    <entry key='database.url'>jdbc:postgresql://postgres:5432/autoparts_db</entry>
+    <entry key='database.user'>autoparts</entry>
+    <entry key='database.password'>autoparts123</entry>
+
+    <entry key='web.enable'>true</entry>
+    <entry key='web.port'>8082</entry>
+
+    <!-- Protocolo do tracker J16 4G -->
+    <entry key='gt06.port'>5001</entry>
+
+    <!-- App Traccar Client (para testes) -->
+    <entry key='osmand.port'>5055</entry>
+
+    <!-- Filtro: ignora posições com menos de 10m de diferença -->
+    <entry key='filter.enable'>true</entry>
+    <entry key='filter.distance'>10</entry>
+    <entry key='filter.maxSpeed'>200</entry>
+</properties>

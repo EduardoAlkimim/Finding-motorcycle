@@ -1,0 +1,189 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────
+// USUÁRIOS
+// ─────────────────────────────────────────
+
+enum Perfil {
+  ADMIN
+  DESPACHANTE
+  MOTOQUEIRO
+}
+
+model Usuario {
+  id           String   @id @default(uuid())
+  nome         String
+  email        String   @unique
+  senha        String
+  perfil       Perfil
+  ativo        Boolean  @default(true)
+  criadoEm    DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  moto              Moto?
+  entregasCriadas   Entrega[]  @relation("DespachanteCriador")
+  entregasAssign    Entrega[]  @relation("MotoqueiroDaEntrega")
+
+  @@map("usuarios")
+}
+
+// ─────────────────────────────────────────
+// MOTOS
+// ─────────────────────────────────────────
+
+model Moto {
+  id         String   @id @default(uuid())
+  placa      String   @unique
+  apelido    String
+  cor        String   @default("#185FA5")
+  traccarId  Int?     @unique
+  ativo      Boolean  @default(true)
+  criadoEm  DateTime @default(now())
+
+  motoqueiro    Usuario?  @relation(fields: [motoqueiroId], references: [id])
+  motoqueiroId  String?   @unique
+
+  entregas  Entrega[]
+  posicoes  Posicao[]
+
+  @@map("motos")
+}
+
+// ─────────────────────────────────────────
+// LOCAIS DE ENTREGA
+// ─────────────────────────────────────────
+
+model Local {
+  id       String  @id @default(uuid())
+  nome     String
+  endereco String
+  lat      Float
+  lng      Float
+  ativo    Boolean @default(true)
+  criadoEm DateTime @default(now())
+
+  entregaLocais EntregaLocal[]
+
+  @@map("locais")
+}
+
+// ─────────────────────────────────────────
+// ENTREGAS
+// ─────────────────────────────────────────
+
+enum StatusEntrega {
+  PENDENTE
+  EM_ROTA
+  CONCLUIDA
+  CANCELADA
+}
+
+model Entrega {
+  id           String        @id @default(uuid())
+  notaFiscal   String
+  status       StatusEntrega @default(PENDENTE)
+  kmPrevisto   Float?
+  kmRealizado  Float?
+  observacoes  String?
+  saidaEm     DateTime?
+  chegadaEm   DateTime?
+  criadoEm    DateTime      @default(now())
+  atualizadoEm DateTime     @updatedAt
+
+  despachante    Usuario @relation("DespachanteCriador", fields: [despachanteId], references: [id])
+  despachanteId  String
+
+  motoqueiro    Usuario? @relation("MotoqueiroDaEntrega", fields: [motoqueiroId], references: [id])
+  motoqueiroId  String?
+
+  moto    Moto?   @relation(fields: [motoId], references: [id])
+  motoId  String?
+
+  locais   EntregaLocal[]
+  posicoes Posicao[]
+  alertas  Alerta[]
+
+  @@map("entregas")
+}
+
+// ─────────────────────────────────────────
+// PARADAS DE UMA ENTREGA
+// ─────────────────────────────────────────
+
+enum StatusParada {
+  PENDENTE
+  CHEGOU
+  CONFIRMADO
+  PROBLEMA
+}
+
+model EntregaLocal {
+  id           String       @id @default(uuid())
+  ordem        Int
+  status       StatusParada @default(PENDENTE)
+  chegouEm    DateTime?
+  saiuEm      DateTime?
+  confirmadoEm DateTime?
+  kmPrevisto   Float?
+
+  entrega    Entrega @relation(fields: [entregaId], references: [id], onDelete: Cascade)
+  entregaId  String
+
+  local    Local  @relation(fields: [localId], references: [id])
+  localId  String
+
+  @@map("entrega_locais")
+}
+
+// ─────────────────────────────────────────
+// POSIÇÕES GPS
+// ─────────────────────────────────────────
+
+model Posicao {
+  id           String   @id @default(uuid())
+  lat          Float
+  lng          Float
+  velocidade   Float?
+  ignicao      Boolean?
+  registradoEm DateTime @default(now())
+
+  moto    Moto   @relation(fields: [motoId], references: [id])
+  motoId  String
+
+  entrega    Entrega? @relation(fields: [entregaId], references: [id])
+  entregaId  String?
+
+  @@index([motoId, registradoEm])
+  @@map("posicoes")
+}
+
+// ─────────────────────────────────────────
+// ALERTAS
+// ─────────────────────────────────────────
+
+enum TipoAlerta {
+  DESVIO_ROTA
+  PARADA_LONGA
+  CONFIRMACAO_SEM_GPS
+  MOTO_FORA_HORARIO
+}
+
+model Alerta {
+  id        String     @id @default(uuid())
+  tipo      TipoAlerta
+  descricao String
+  lido      Boolean    @default(false)
+  criadoEm DateTime   @default(now())
+
+  entrega    Entrega? @relation(fields: [entregaId], references: [id])
+  entregaId  String?
+
+  @@map("alertas")
+}
