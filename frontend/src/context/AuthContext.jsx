@@ -9,9 +9,8 @@ export function AuthProvider({ children }) {
     return salvo ? JSON.parse(salvo) : null;
   });
 
-  // Faz login real na API e guarda o token JWT
   const login = async (email, senha) => {
-    const data = await auth.login(email, senha); // { token, usuario }
+    const data = await auth.login(email, senha);
     localStorage.setItem('ap_token', data.token);
     localStorage.setItem('ap_usuario', JSON.stringify(data.usuario));
     setUsuario(data.usuario);

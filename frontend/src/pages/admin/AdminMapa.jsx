@@ -5,7 +5,6 @@ import Layout from '../../components/shared/Layout';
 import { Map, BarChart3, Users, MapPin, Bell, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
 import { motos as motosApi, entregas as entregasApi, alertas as alertasApi, criarWebSocket } from '../../services/api';
 
-// ─── Coordenadas da loja vindas do env ou padrão ────────────────────────────
 const LOJA = {
   lat:  parseFloat(import.meta.env.VITE_LOJA_LAT  || '-15.7942'),
   lng:  parseFloat(import.meta.env.VITE_LOJA_LNG  || '-47.8825'),
@@ -52,15 +51,14 @@ function MapaControle() {
 }
 
 export default function AdminMapa() {
-  const [tabAtiva, setTabAtiva]       = useState('resumo');
-  const [motos, setMotos]             = useState([]);
-  const [posicoes, setPosicoes]       = useState({}); // { [motoId]: { lat, lng, velocidade, ignicao } }
-  const [entregasHoje, setEntregas]   = useState([]);
-  const [listaAlertas, setAlertas]    = useState([]);
-  const [loading, setLoading]         = useState(true);
+  const [tabAtiva, setTabAtiva]     = useState('resumo');
+  const [motos, setMotos]           = useState([]);
+  const [posicoes, setPosicoes]     = useState({});
+  const [entregasHoje, setEntregas] = useState([]);
+  const [listaAlertas, setAlertas]  = useState([]);
+  const [loading, setLoading]       = useState(true);
   const wsRef = useRef(null);
 
-  // ── Carrega dados iniciais ────────────────────────────────────────────────
   useEffect(() => {
     async function carregar() {
       try {
@@ -70,20 +68,17 @@ export default function AdminMapa() {
           entregasApi.listar({ data: new Date().toISOString().split('T')[0] }),
           alertasApi.listar(),
         ]);
-
         setMotos(motosData);
         setEntregas(entregasData);
         setAlertas(alertasData);
-
-        // posicoesLive retorna [{ moto, posicao }]
         const mapa = {};
         for (const item of posicoesData) {
           if (item.posicao) {
             mapa[item.moto.id] = {
-              lat:       item.posicao.lat,
-              lng:       item.posicao.lng,
+              lat:        item.posicao.lat,
+              lng:        item.posicao.lng,
               velocidade: item.posicao.velocidade,
-              ignicao:   item.posicao.ignicao,
+              ignicao:    item.posicao.ignicao,
             };
           }
         }
@@ -97,38 +92,25 @@ export default function AdminMapa() {
     carregar();
   }, []);
 
-  // ── WebSocket para posições ao vivo ───────────────────────────────────────
   useEffect(() => {
     wsRef.current = criarWebSocket((msg) => {
-  if (msg.evento === 'posicao_moto') {
-    const d = msg.dados;
-    setPosicoes(prev => ({
-      ...prev,
-      [d.motoId]: {
-        lat:        d.lat,
-        lng:        d.lng,
-        velocidade: d.velocidade,
-        ignicao:    d.ignicao,
-      },
-    }));
-  }
-});
-
-    return () => {
-      if (wsRef.current) wsRef.current.close();
-    };
+      if (msg.evento === 'posicao_moto') {
+        const d = msg.dados;
+        setPosicoes(prev => ({
+          ...prev,
+          [d.motoId]: { lat: d.lat, lng: d.lng, velocidade: d.velocidade, ignicao: d.ignicao },
+        }));
+      }
+    });
+    return () => { if (wsRef.current) wsRef.current.close(); };
   }, []);
 
-  // ── Estatísticas derivadas ────────────────────────────────────────────────
-  const concluidas   = entregasHoje.filter(e => e.status === 'CONCLUIDA').length;
-  const emRota       = entregasHoje.filter(e => e.status === 'EM_ROTA').length;
+  const concluidas    = entregasHoje.filter(e => e.status === 'CONCLUIDA').length;
+  const emRota        = entregasHoje.filter(e => e.status === 'EM_ROTA').length;
   const alertasAtivos = listaAlertas.filter(a => !a.lido).length;
 
   const locaisAtivos = entregasHoje.flatMap(e =>
-    (e.locais || []).map(el => ({
-      ...el.local,
-      status: el.status,
-    }))
+    (e.locais || []).map(el => ({ ...el.local, status: el.status }))
   );
 
   if (loading) {
@@ -143,7 +125,6 @@ export default function AdminMapa() {
 
   return (
     <Layout navItems={NAV} titulo="Mapa ao vivo">
-      {/* Topbar */}
       <div className="bg-white border-b border-gray-100 px-5 py-3 flex items-center justify-between flex-shrink-0">
         <div>
           <h1 className="text-base font-semibold text-gray-900">Mapa ao vivo</h1>
@@ -164,32 +145,20 @@ export default function AdminMapa() {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Mapa */}
         <div className="flex-1 relative">
-          <MapContainer
-            center={[LOJA.lat, LOJA.lng]}
-            zoom={13}
-            style={{ width: '100%', height: '100%' }}
-            zoomControl={true}
-          >
+          <MapContainer center={[LOJA.lat, LOJA.lng]} zoom={13} style={{ width: '100%', height: '100%' }} zoomControl={true}>
             <MapaControle />
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-            {/* Loja */}
             <Marker position={[LOJA.lat, LOJA.lng]} icon={criarIconeLoja()}>
               <Popup><strong>🏪 {LOJA.nome}</strong><br/>Ponto de origem</Popup>
             </Marker>
 
-            {/* Motos ao vivo — só plota se tiver posição conhecida */}
             {motos.map(moto => {
               const pos = posicoes[moto.id];
               if (!pos) return null;
               return (
-                <Marker
-                  key={moto.id}
-                  position={[pos.lat, pos.lng]}
-                  icon={criarIconeMoto(moto.cor || '#185FA5', moto.apelido, pos.velocidade)}
-                >
+                <Marker key={moto.id} position={[pos.lat, pos.lng]} icon={criarIconeMoto(moto.cor || '#185FA5', moto.apelido, pos.velocidade)}>
                   <Popup>
                     <strong>{moto.apelido}</strong><br/>
                     Placa: {moto.placa}<br/>
@@ -201,13 +170,8 @@ export default function AdminMapa() {
               );
             })}
 
-            {/* Locais de entrega */}
             {locaisAtivos.map((local, i) => local?.lat && (
-              <Marker
-                key={i}
-                position={[local.lat, local.lng]}
-                icon={criarIconeLocal(local.status)}
-              >
+              <Marker key={i} position={[local.lat, local.lng]} icon={criarIconeLocal(local.status)}>
                 <Popup>
                   <strong>{local.nome}</strong><br/>
                   {local.endereco}<br/>
@@ -216,13 +180,11 @@ export default function AdminMapa() {
               </Marker>
             ))}
 
-            {/* Linhas loja → motos */}
             {motos.map(moto => {
               const pos = posicoes[moto.id];
               if (!pos) return null;
               return (
-                <Polyline
-                  key={moto.id}
+                <Polyline key={moto.id}
                   positions={[[LOJA.lat, LOJA.lng], [pos.lat, pos.lng]]}
                   pathOptions={{ color: moto.cor || '#185FA5', weight: 2, dashArray: '5,8', opacity: 0.5 }}
                 />
@@ -230,7 +192,6 @@ export default function AdminMapa() {
             })}
           </MapContainer>
 
-          {/* Legenda */}
           <div className="absolute bottom-4 left-4 bg-white rounded-xl shadow-lg border border-gray-100 p-3 text-xs space-y-1.5 z-[400]">
             <div className="font-semibold text-gray-700 mb-2">Legenda</div>
             {motos.map(m => (
@@ -239,9 +200,7 @@ export default function AdminMapa() {
                 <span className="text-gray-600">{m.apelido} · {m.motoqueiro?.nome?.split(' ')[0] || '—'}</span>
               </div>
             ))}
-            {motos.length === 0 && (
-              <div className="text-gray-400 italic">Nenhuma moto cadastrada</div>
-            )}
+            {motos.length === 0 && <div className="text-gray-400 italic">Nenhuma moto cadastrada</div>}
             <div className="border-t border-gray-100 pt-1.5 mt-1.5 space-y-1">
               <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-green-600 inline-block"></span><span className="text-gray-500">Entregue</span></div>
               <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-blue-600 inline-block"></span><span className="text-gray-500">Chegou</span></div>
@@ -250,24 +209,18 @@ export default function AdminMapa() {
           </div>
         </div>
 
-        {/* Painel lateral */}
         <div className="w-[240px] bg-white border-l border-gray-100 flex flex-col flex-shrink-0 overflow-hidden">
           <div className="flex border-b border-gray-100">
             {['resumo', 'entregas', 'alertas'].map(t => (
-              <button
-                key={t}
-                onClick={() => setTabAtiva(t)}
+              <button key={t} onClick={() => setTabAtiva(t)}
                 className={`flex-1 py-2.5 text-xs font-medium capitalize transition-all border-b-2 ${
                   tabAtiva === t ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-400 hover:text-gray-600'
                 }`}
-              >
-                {t}
-              </button>
+              >{t}</button>
             ))}
           </div>
 
           <div className="flex-1 overflow-y-auto scrollbar-thin p-4">
-            {/* TAB RESUMO */}
             {tabAtiva === 'resumo' && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-2">
@@ -283,7 +236,6 @@ export default function AdminMapa() {
                     </div>
                   ))}
                 </div>
-
                 {motos.map(moto => {
                   const minhasEntregas = entregasHoje.filter(e => e.motoId === moto.id);
                   const kmPrev = minhasEntregas.reduce((s, e) => s + (e.kmPrevisto || 0), 0);
@@ -308,9 +260,7 @@ export default function AdminMapa() {
                         <div>
                           <div className="flex justify-between text-[10px] text-gray-400 mb-1">
                             <span>Realizado</span>
-                            <span className={`font-medium ${desvio > 0 ? 'text-red-500' : 'text-green-600'}`}>
-                              {kmReal.toFixed(1)} km
-                            </span>
+                            <span className={`font-medium ${desvio > 0 ? 'text-red-500' : 'text-green-600'}`}>{kmReal.toFixed(1)} km</span>
                           </div>
                           <div className="h-1.5 bg-gray-100 rounded-full">
                             <div className="h-full rounded-full" style={{ background: moto.cor || '#185FA5', width: `${kmPrev > 0 ? Math.min((kmReal / kmPrev) * 100, 120) : 0}%` }}></div>
@@ -328,16 +278,12 @@ export default function AdminMapa() {
               </div>
             )}
 
-            {/* TAB ENTREGAS */}
             {tabAtiva === 'entregas' && (
               <div className="space-y-2">
-                {entregasHoje.length === 0 && (
-                  <div className="text-center py-8 text-gray-400 text-sm">Nenhuma entrega hoje</div>
-                )}
+                {entregasHoje.length === 0 && <div className="text-center py-8 text-gray-400 text-sm">Nenhuma entrega hoje</div>}
                 {entregasHoje.map(e => {
                   const moto = motos.find(m => m.id === e.motoId);
                   const cfg  = STATUS_CONFIG[e.status] || STATUS_CONFIG.PENDENTE;
-                  const locaisE = e.locais || [];
                   return (
                     <div key={e.id} className="border border-gray-100 rounded-xl p-3">
                       <div className="flex items-center justify-between mb-1.5">
@@ -351,8 +297,7 @@ export default function AdminMapa() {
                         </div>
                       )}
                       <div className="text-[10px] text-gray-400 mt-1">
-                        {locaisE.length} parada{locaisE.length !== 1 ? 's' : ''} ·{' '}
-                        {locaisE.filter(l => l.status === 'CONFIRMADO').length} confirmada{locaisE.filter(l => l.status === 'CONFIRMADO').length !== 1 ? 's' : ''}
+                        {(e.locais || []).length} parada{(e.locais || []).length !== 1 ? 's' : ''} · {(e.locais || []).filter(l => l.status === 'CONFIRMADO').length} confirmada{(e.locais || []).filter(l => l.status === 'CONFIRMADO').length !== 1 ? 's' : ''}
                       </div>
                     </div>
                   );
@@ -360,7 +305,6 @@ export default function AdminMapa() {
               </div>
             )}
 
-            {/* TAB ALERTAS */}
             {tabAtiva === 'alertas' && (
               <div className="space-y-2">
                 {listaAlertas.length === 0 && (
