@@ -33,7 +33,7 @@ export default function Login() {
     setLoading(true);
     try {
       await new Promise(r => setTimeout(r, 400));
-      const user = login(email, senha);
+      const user = await login(email, senha);
       navigate(ROTAS[user.perfil]);
     } catch (err) {
       setErro('E-mail ou senha incorretos');

@@ -100,18 +100,19 @@ export default function AdminMapa() {
   // ── WebSocket para posições ao vivo ───────────────────────────────────────
   useEffect(() => {
     wsRef.current = criarWebSocket((msg) => {
-      if (msg.tipo === 'posicao_moto') {
-        setPosicoes(prev => ({
-          ...prev,
-          [msg.motoId]: {
-            lat:        msg.lat,
-            lng:        msg.lng,
-            velocidade: msg.velocidade,
-            ignicao:    msg.ignicao,
-          },
-        }));
-      }
-    });
+  if (msg.evento === 'posicao_moto') {
+    const d = msg.dados;
+    setPosicoes(prev => ({
+      ...prev,
+      [d.motoId]: {
+        lat:        d.lat,
+        lng:        d.lng,
+        velocidade: d.velocidade,
+        ignicao:    d.ignicao,
+      },
+    }));
+  }
+});
 
     return () => {
       if (wsRef.current) wsRef.current.close();
