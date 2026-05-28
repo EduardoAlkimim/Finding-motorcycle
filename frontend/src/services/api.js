@@ -1,9 +1,5 @@
-// ─── Base URL ─────────────────────────────────────────────────────────────────
-// Em desenvolvimento: proxy do Vite redireciona /api → localhost:3000
-// Em produção: troca VITE_API_URL pelo IP/domínio do servidor
 const BASE = import.meta.env.VITE_API_URL || '';
 
-// ─── Helper de fetch autenticado ──────────────────────────────────────────────
 async function req(path, options = {}) {
   const token = localStorage.getItem('ap_token');
   const res = await fetch(`${BASE}${path}`, {
@@ -21,25 +17,22 @@ async function req(path, options = {}) {
   return res.json();
 }
 
-// ─── Auth ──────────────────────────────────────────────────────────────────────
 export const auth = {
   login: (email, senha) =>
     req('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, senha }) }),
 };
 
-// ─── Motos ────────────────────────────────────────────────────────────────────
 export const motos = {
-  listar:        ()     => req('/api/motos'),
-  posicoesLive:  ()     => req('/api/motos/posicoes-live'),
-  ultimaPosicao: (id)   => req(`/api/motos/${id}/posicao`),
-  trajeto:       (id, data) => req(`/api/motos/${id}/trajeto?data=${data}`),
-  criar:         (dados) => req('/api/motos', { method: 'POST', body: JSON.stringify(dados) }),
+  listar:        ()          => req('/api/motos'),
+  posicoesLive:  ()          => req('/api/motos/posicoes-live'),
+  ultimaPosicao: (id)        => req(`/api/motos/${id}/posicao`),
+  trajeto:       (id, data)  => req(`/api/motos/${id}/trajeto?data=${data}`),
+  criar:         (dados)     => req('/api/motos', { method: 'POST', body: JSON.stringify(dados) }),
   atualizar:     (id, dados) => req(`/api/motos/${id}`, { method: 'PUT', body: JSON.stringify(dados) }),
 };
 
-// ─── Entregas ─────────────────────────────────────────────────────────────────
 export const entregas = {
-  listar:   (params = {}) => {
+  listar: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return req(`/api/entregas${qs ? `?${qs}` : ''}`);
   },
@@ -51,19 +44,19 @@ export const entregas = {
     req(`/api/entregas/${id}/locais/${localEntregaId}/confirmar`, { method: 'PATCH' }),
 };
 
-// ─── Locais ───────────────────────────────────────────────────────────────────
 export const locais = {
-  listar: () => req('/api/locais'),
-  criar:  (dados) => req('/api/locais', { method: 'POST', body: JSON.stringify(dados) }),
+  listar:    ()          => req('/api/locais'),
+  buscar:    (id)        => req(`/api/locais/${id}`),
+  criar:     (dados)     => req('/api/locais', { method: 'POST', body: JSON.stringify(dados) }),
+  atualizar: (id, dados) => req(`/api/locais/${id}`, { method: 'PUT', body: JSON.stringify(dados) }),
+  remover:   (id)        => req(`/api/locais/${id}`, { method: 'DELETE' }),
 };
 
-// ─── Alertas ──────────────────────────────────────────────────────────────────
 export const alertas = {
-  listar: () => req('/api/alertas'),
+  listar:     ()   => req('/api/alertas'),
   marcarLido: (id) => req(`/api/alertas/${id}/lido`, { method: 'PATCH' }),
 };
 
-// ─── Relatórios ───────────────────────────────────────────────────────────────
 export const relatorios = {
   resumo: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
@@ -71,12 +64,10 @@ export const relatorios = {
   },
 };
 
-// ─── Usuários ─────────────────────────────────────────────────────────────────
 export const usuarios = {
   listar: () => req('/api/usuarios'),
 };
 
-// ─── WebSocket ao vivo (posições das motos) ───────────────────────────────────
 export function criarWebSocket(onMensagem) {
   const wsBase = (import.meta.env.VITE_API_URL || window.location.origin)
     .replace(/^https/, 'wss')

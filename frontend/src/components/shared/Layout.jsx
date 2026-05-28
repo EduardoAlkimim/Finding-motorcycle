@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useAlertas } from '../../context/AlertasContext';
 import { Bell, LogOut, Menu, X } from 'lucide-react';
-import { ALERTAS } from '../../mock/data';
 
-export default function Layout({ children, navItems, titulo }) {
+export default function Layout({ children, navItems }) {
   const { usuario, logout } = useAuth();
+  const { count: alertasNaoLidos } = useAlertas();
   const location = useLocation();
   const navigate = useNavigate();
   const [menuAberto, setMenuAberto] = useState(false);
-  const alertasNaoLidos = ALERTAS.filter(a => !a.lido).length;
 
   const handleLogout = () => {
     logout();
