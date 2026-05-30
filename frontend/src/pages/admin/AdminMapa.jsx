@@ -24,7 +24,7 @@ const criarIconeMoto = (cor, apelido) => L.divIcon({
       <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg"><path d="M19 7h-1.5l-1.5-3H9L7.5 7H6a3 3 0 0 0-3 3v2a3 3 0 0 0 3 3h.17A3 3 0 0 0 9 17a3 3 0 0 0 2.83-2h.34A3 3 0 0 0 15 17a3 3 0 0 0 2.83-2H19a3 3 0 0 0 3-3v-2a3 3 0 0 0-3-3zm-10 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm6 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
       ${apelido}
     </div>
-    <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid ${cor};margin-top:-1px"></div>
+    <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid ${cor};margin-top:-1px"></div>
   </div>`,
   className: '',
   iconAnchor: [40, 30],
@@ -36,7 +36,9 @@ const criarIconeLoja = () => L.divIcon({
 });
 
 const criarIconeLocal = (status) => L.divIcon({
-  html: `<div style="width:12px;height:12px;border-radius:50%;background:${status === 'CONFIRMADO' ? '#16a34a' : status === 'CHEGOU' ? '#2563eb' : '#ef4444'};border:2.5px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,0.3)"></div>`,
+  html: `<div style="width:12px;height:12px;border-radius:50%;background:${
+    status === 'CONFIRMADO' ? '#16a34a' : status === 'CHEGOU' ? '#2563eb' : '#ef4444'
+  };border:2.5px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,0.3)"></div>`,
   className: '', iconAnchor: [6, 6],
 });
 
@@ -89,7 +91,7 @@ export default function AdminMapa() {
         }
         setPosicoes(mapa);
 
-        // Busca trajeto real de cada moto
+        // Busca trajeto real do dia para cada moto
         const trajetosData = {};
         await Promise.all(
           motosData.map(async (moto) => {
@@ -100,7 +102,6 @@ export default function AdminMapa() {
           })
         );
         setTrajetos(trajetosData);
-
       } catch (err) {
         console.error('Erro ao carregar dados:', err);
       } finally {
@@ -176,6 +177,18 @@ export default function AdminMapa() {
               <Popup><strong>🏪 {LOJA.nome}</strong><br/>Ponto de origem</Popup>
             </Marker>
 
+            {/* Trajetos reais do GPS */}
+            {motos.map(moto => {
+              const pts = trajetos[moto.id];
+              if (!pts?.length) return null;
+              return (
+                <Polyline key={`traj-${moto.id}`}
+                  positions={pts.map(p => [p.lat, p.lng])}
+                  pathOptions={{ color: moto.cor || '#185FA5', weight: 3, opacity: 0.7 }}
+                />
+              );
+            })}
+
             {/* Motos */}
             {motos.map(moto => {
               const pos = posicoes[moto.id];
@@ -192,7 +205,7 @@ export default function AdminMapa() {
               );
             })}
 
-            {/* Locais de entrega */}
+            {/* Locais das entregas */}
             {locaisAtivos.map((local, i) => local?.lat && (
               <Marker key={i} position={[local.lat, local.lng]} icon={criarIconeLocal(local.status)}>
                 <Popup>
@@ -202,30 +215,6 @@ export default function AdminMapa() {
                 </Popup>
               </Marker>
             ))}
-
-            {/* Trajeto real do GPS */}
-            {motos.map(moto => {
-              const pts = trajetos[moto.id];
-              if (!pts?.length) return null;
-              return (
-                <Polyline key={`trajeto-${moto.id}`}
-                  positions={pts.map(p => [p.lat, p.lng])}
-                  pathOptions={{ color: moto.cor || '#185FA5', weight: 3, opacity: 0.7 }}
-                />
-              );
-            })}
-
-            {/* Linha tracejada loja → posição atual (quando sem trajeto) */}
-            {motos.map(moto => {
-              const pos = posicoes[moto.id];
-              if (!pos || trajetos[moto.id]?.length) return null;
-              return (
-                <Polyline key={`linha-${moto.id}`}
-                  positions={[[LOJA.lat, LOJA.lng], [pos.lat, pos.lng]]}
-                  pathOptions={{ color: moto.cor || '#185FA5', weight: 2, dashArray: '5,8', opacity: 0.4 }}
-                />
-              );
-            })}
           </MapContainer>
 
           <div className="absolute bottom-4 left-4 bg-white rounded-xl shadow-lg border border-gray-100 p-3 text-xs space-y-1.5 z-[400]">
