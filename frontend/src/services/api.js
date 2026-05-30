@@ -27,6 +27,7 @@ export const motos = {
   posicoesLive:  ()          => req('/api/motos/posicoes-live'),
   ultimaPosicao: (id)        => req(`/api/motos/${id}/posicao`),
   trajeto:       (id, data)  => req(`/api/motos/${id}/trajeto?data=${data}`),
+  viagens:       (id, data)  => req(`/api/motos/${id}/viagens?data=${data}`),
   criar:         (dados)     => req('/api/motos', { method: 'POST', body: JSON.stringify(dados) }),
   atualizar:     (id, dados) => req(`/api/motos/${id}`, { method: 'PUT', body: JSON.stringify(dados) }),
 };

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import Layout from '../../components/shared/Layout';
-import { Map, BarChart3, MapPin, Bell, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
+import { Map, BarChart3, MapPin, Bell, AlertTriangle, CheckCircle2, Clock, Route } from 'lucide-react';
 import { motos as motosApi, entregas as entregasApi, alertas as alertasApi, criarWebSocket } from '../../services/api';
 
 const LOJA = {
@@ -56,13 +56,15 @@ function MapaControle() {
 }
 
 export default function AdminMapa() {
-  const [tabAtiva, setTabAtiva]     = useState('resumo');
-  const [motos, setMotos]           = useState([]);
-  const [posicoes, setPosicoes]     = useState({});
-  const [trajetos, setTrajetos]     = useState({});
-  const [entregasHoje, setEntregas] = useState([]);
-  const [listaAlertas, setAlertas]  = useState([]);
-  const [loading, setLoading]       = useState(true);
+  const [tabAtiva, setTabAtiva]       = useState('resumo');
+  const [motos, setMotos]             = useState([]);
+  const [posicoes, setPosicoes]       = useState({});
+  const [trajetos, setTrajetos]       = useState({});
+  const [entregasHoje, setEntregas]   = useState([]);
+  const [listaAlertas, setAlertas]    = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [viagensData, setViagens]     = useState({});
+  const [viagemAtiva, setViagemAtiva] = useState(null);
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -91,7 +93,6 @@ export default function AdminMapa() {
         }
         setPosicoes(mapa);
 
-        // Busca trajeto real do dia para cada moto
         const trajetosData = {};
         await Promise.all(
           motosData.map(async (moto) => {
@@ -102,6 +103,17 @@ export default function AdminMapa() {
           })
         );
         setTrajetos(trajetosData);
+
+        const viagensMap = {};
+        await Promise.all(
+          motosData.map(async (moto) => {
+            try {
+              const vs = await motosApi.viagens(moto.id, hoje);
+              if (vs?.length) viagensMap[moto.id] = vs;
+            } catch (_) {}
+          })
+        );
+        setViagens(viagensMap);
       } catch (err) {
         console.error('Erro ao carregar dados:', err);
       } finally {
@@ -177,7 +189,6 @@ export default function AdminMapa() {
               <Popup><strong>🏪 {LOJA.nome}</strong><br/>Ponto de origem</Popup>
             </Marker>
 
-            {/* Trajetos reais do GPS */}
             {motos.map(moto => {
               const pts = trajetos[moto.id];
               if (!pts?.length) return null;
@@ -189,7 +200,16 @@ export default function AdminMapa() {
               );
             })}
 
-            {/* Motos */}
+            {viagemAtiva && (() => {
+              const moto = motos.find(m => m.id === viagemAtiva.motoId);
+              return (
+                <Polyline
+                  positions={viagemAtiva.pontos.map(p => [p.lat, p.lng])}
+                  pathOptions={{ color: moto?.cor || '#185FA5', weight: 5, opacity: 1 }}
+                />
+              );
+            })()}
+
             {motos.map(moto => {
               const pos = posicoes[moto.id];
               if (!pos) return null;
@@ -205,7 +225,6 @@ export default function AdminMapa() {
               );
             })}
 
-            {/* Locais das entregas */}
             {locaisAtivos.map((local, i) => local?.lat && (
               <Marker key={i} position={[local.lat, local.lng]} icon={criarIconeLocal(local.status)}>
                 <Popup>
@@ -234,10 +253,9 @@ export default function AdminMapa() {
           </div>
         </div>
 
-        {/* Painel lateral */}
         <div className="w-[240px] bg-white border-l border-gray-100 flex flex-col flex-shrink-0 overflow-hidden">
           <div className="flex border-b border-gray-100">
-            {['resumo', 'entregas', 'alertas'].map(t => (
+            {['resumo', 'entregas', 'alertas', 'viagens'].map(t => (
               <button key={t} onClick={() => setTabAtiva(t)}
                 className={`flex-1 py-2.5 text-xs font-medium capitalize transition-all border-b-2 ${
                   tabAtiva === t ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-400 hover:text-gray-600'
@@ -354,6 +372,65 @@ export default function AdminMapa() {
                 ))}
               </div>
             )}
+
+            {tabAtiva === 'viagens' && (() => {
+              const todasViagens = motos.flatMap(moto =>
+                (viagensData[moto.id] || []).map(v => ({ ...v, moto }))
+              ).sort((a, b) => new Date(b.inicio) - new Date(a.inicio));
+
+              if (todasViagens.length === 0) {
+                return (
+                  <div className="text-center py-8 text-gray-400 text-sm">
+                    <Route size={32} className="mx-auto mb-2 text-gray-300" />
+                    Nenhuma viagem hoje
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-2">
+                  {todasViagens.map((v) => {
+                    const isAtiva = viagemAtiva?.motoId === v.moto.id && viagemAtiva?.id === v.id;
+                    const dur = Math.round((new Date(v.fim) - new Date(v.inicio)) / 60000);
+                    return (
+                      <button
+                        key={`${v.moto.id}-${v.id}`}
+                        onClick={() => setViagemAtiva(isAtiva ? null : { motoId: v.moto.id, id: v.id, pontos: v.pontos })}
+                        className={`w-full text-left border rounded-xl p-3 transition-all ${
+                          isAtiva ? 'border-brand-400 bg-brand-50' : 'border-gray-100 hover:border-gray-200 bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: v.moto.cor || '#185FA5' }}></span>
+                          <span className="text-xs font-semibold text-gray-800">{v.moto.apelido}</span>
+                          <span className="ml-auto text-[10px] text-gray-400">#{v.id}</span>
+                        </div>
+                        <div className="text-[10px] text-gray-500 space-y-0.5">
+                          <div className="flex justify-between">
+                            <span>{new Date(v.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span>→</span>
+                            <span>{new Date(v.fim).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          <div className="flex justify-between text-gray-400">
+                            <span>{dur} min</span>
+                            <span className="font-medium text-gray-600">{v.km} km</span>
+                          </div>
+                        </div>
+                        {v.entrega ? (
+                          <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] text-brand-600 font-medium truncate">
+                            NF {v.entrega.notaFiscal} · {v.entrega.status}
+                          </div>
+                        ) : (
+                          <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] text-gray-400 italic">
+                            Sem entrega vinculada
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

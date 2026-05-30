@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import Layout from '../../components/shared/Layout';
-import { ClipboardList, Map, Bell, Navigation2, Loader2 } from 'lucide-react';
+import { ClipboardList, Map, Bell, Navigation2, Loader2, Route } from 'lucide-react';
 import { motos as motosApi, entregas as entregasApi, criarWebSocket } from '../../services/api';
 
 const NAV = [
@@ -37,7 +37,7 @@ const criarIconeLocal = (status) => L.divIcon({
   className: '', iconAnchor: [7, 7],
 });
 
-function MapaConteudo({ motos, posicoes, locaisAtivos }) {
+function MapaConteudo({ motos, posicoes, locaisAtivos, viagemAtiva }) {
   const map = useMap();
   useEffect(() => { map.invalidateSize(); }, [map]);
 
@@ -83,24 +83,38 @@ function MapaConteudo({ motos, posicoes, locaisAtivos }) {
           />
         );
       })}
+
+      {viagemAtiva && (() => {
+        const moto = motos.find(m => m.id === viagemAtiva.motoId);
+        return (
+          <Polyline
+            positions={viagemAtiva.pontos.map(p => [p.lat, p.lng])}
+            pathOptions={{ color: moto?.cor || '#185FA5', weight: 5, opacity: 1 }}
+          />
+        );
+      })()}
     </>
   );
 }
 
 export default function DespachanteMapa() {
-  const [motos, setMotos]           = useState([]);
-  const [posicoes, setPosicoes]     = useState({});
-  const [entregasHoje, setEntregas] = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [mapaKey]                   = useState(() => Date.now());
+  const [motos, setMotos]             = useState([]);
+  const [posicoes, setPosicoes]       = useState({});
+  const [entregasHoje, setEntregas]   = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [mapaKey]                     = useState(() => Date.now());
+  const [viagensData, setViagens]     = useState({});
+  const [viagemAtiva, setViagemAtiva] = useState(null);
+  const [tabAtiva, setTabAtiva]       = useState('entregas');
   const wsRef = useRef(null);
 
   const carregar = useCallback(async () => {
     try {
+      const hoje = new Date().toISOString().split('T')[0];
       const [motosData, posicoesData, entregasData] = await Promise.all([
         motosApi.listar(),
         motosApi.posicoesLive(),
-        entregasApi.listar({ data: new Date().toISOString().split('T')[0] }),
+        entregasApi.listar({ data: hoje }),
       ]);
       setMotos(motosData);
       setEntregas(entregasData);
@@ -115,6 +129,17 @@ export default function DespachanteMapa() {
         }
       }
       setPosicoes(mapa);
+
+      const viagensMap = {};
+      await Promise.all(
+        motosData.map(async (moto) => {
+          try {
+            const vs = await motosApi.viagens(moto.id, hoje);
+            if (vs?.length) viagensMap[moto.id] = vs;
+          } catch (_) {}
+        })
+      );
+      setViagens(viagensMap);
     } catch (err) {
       console.error('Erro ao carregar mapa:', err);
     } finally {
@@ -169,7 +194,7 @@ export default function DespachanteMapa() {
                 attribution='&copy; <a href="https://carto.com/">CARTO</a>'
                 maxZoom={19}
               />
-              <MapaConteudo motos={motos} posicoes={posicoes} locaisAtivos={locaisAtivos} />
+              <MapaConteudo motos={motos} posicoes={posicoes} locaisAtivos={locaisAtivos} viagemAtiva={viagemAtiva} />
             </MapContainer>
           )}
 
@@ -193,48 +218,109 @@ export default function DespachanteMapa() {
         </div>
 
         <div className="w-[220px] bg-white border-l border-gray-100 flex flex-col flex-shrink-0 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <div className="text-xs font-semibold text-gray-700">Entregas em rota</div>
+          <div className="flex border-b border-gray-100">
+            {['entregas', 'viagens'].map(t => (
+              <button key={t} onClick={() => setTabAtiva(t)}
+                className={`flex-1 py-2.5 text-xs font-medium capitalize transition-all border-b-2 ${
+                  tabAtiva === t ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-400 hover:text-gray-600'
+                }`}
+              >{t}</button>
+            ))}
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 size={16} className="animate-spin text-gray-300" />
               </div>
-            ) : entregasEmRota.length === 0 ? (
-              <div className="text-center py-8 text-gray-400 text-xs">
-                <Navigation2 size={24} className="mx-auto mb-2 text-gray-300" />
-                Nenhuma entrega em rota
-              </div>
-            ) : entregasEmRota.map(e => {
-              const moto = motos.find(m => m.id === e.motoId);
-              return (
-                <div key={e.id} className="border border-gray-100 rounded-xl p-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="w-2 h-2 rounded-full" style={{ background: moto?.cor || '#185FA5' }}></span>
-                    <span className="text-xs font-semibold text-gray-800 font-mono">{e.notaFiscal}</span>
-                  </div>
-                  <div className="text-[10px] text-gray-400 mb-2">
-                    {moto?.apelido || '—'} · {moto?.motoqueiro?.nome?.split(' ')[0] || '—'}
-                  </div>
-                  <div className="space-y-1">
-                    {(e.locais || []).map((el, i) => (
-                      <div key={el.id || i} className="flex items-center gap-2">
-                        <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold flex-shrink-0 ${
-                          el.status === 'CONFIRMADO' ? 'bg-green-500 text-white' :
-                          el.status === 'CHEGOU'     ? 'bg-blue-500 text-white'  :
-                          'bg-gray-200 text-gray-500'
-                        }`}>{i + 1}</div>
-                        <span className="text-[10px] text-gray-600 truncate">{el.local?.nome || '—'}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="text-[10px] text-gray-400 mt-2 pt-2 border-t border-gray-50">
-                    {(e.locais || []).filter(l => l.status === 'CONFIRMADO').length}/{(e.locais || []).length} confirmadas
-                  </div>
+            ) : tabAtiva === 'entregas' ? (
+              entregasEmRota.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 text-xs">
+                  <Navigation2 size={24} className="mx-auto mb-2 text-gray-300" />
+                  Nenhuma entrega em rota
                 </div>
-              );
-            })}
+              ) : entregasEmRota.map(e => {
+                const moto = motos.find(m => m.id === e.motoId);
+                return (
+                  <div key={e.id} className="border border-gray-100 rounded-xl p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="w-2 h-2 rounded-full" style={{ background: moto?.cor || '#185FA5' }}></span>
+                      <span className="text-xs font-semibold text-gray-800 font-mono">{e.notaFiscal}</span>
+                    </div>
+                    <div className="text-[10px] text-gray-400 mb-2">
+                      {moto?.apelido || '—'} · {moto?.motoqueiro?.nome?.split(' ')[0] || '—'}
+                    </div>
+                    <div className="space-y-1">
+                      {(e.locais || []).map((el, i) => (
+                        <div key={el.id || i} className="flex items-center gap-2">
+                          <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold flex-shrink-0 ${
+                            el.status === 'CONFIRMADO' ? 'bg-green-500 text-white' :
+                            el.status === 'CHEGOU'     ? 'bg-blue-500 text-white'  :
+                            'bg-gray-200 text-gray-500'
+                          }`}>{i + 1}</div>
+                          <span className="text-[10px] text-gray-600 truncate">{el.local?.nome || '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-[10px] text-gray-400 mt-2 pt-2 border-t border-gray-50">
+                      {(e.locais || []).filter(l => l.status === 'CONFIRMADO').length}/{(e.locais || []).length} confirmadas
+                    </div>
+                  </div>
+                );
+              })
+            ) : (() => {
+              const todasViagens = motos.flatMap(moto =>
+                (viagensData[moto.id] || []).map(v => ({ ...v, moto }))
+              ).sort((a, b) => new Date(b.inicio) - new Date(a.inicio));
+
+              if (todasViagens.length === 0) {
+                return (
+                  <div className="text-center py-8 text-gray-400 text-xs">
+                    <Route size={24} className="mx-auto mb-2 text-gray-300" />
+                    Nenhuma viagem hoje
+                  </div>
+                );
+              }
+
+              return todasViagens.map(v => {
+                const isAtiva = viagemAtiva?.motoId === v.moto.id && viagemAtiva?.id === v.id;
+                const dur = Math.round((new Date(v.fim) - new Date(v.inicio)) / 60000);
+                return (
+                  <button
+                    key={`${v.moto.id}-${v.id}`}
+                    onClick={() => setViagemAtiva(isAtiva ? null : { motoId: v.moto.id, id: v.id, pontos: v.pontos })}
+                    className={`w-full text-left border rounded-xl p-3 transition-all ${
+                      isAtiva ? 'border-brand-400 bg-brand-50' : 'border-gray-100 hover:border-gray-200 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: v.moto.cor || '#185FA5' }}></span>
+                      <span className="text-xs font-semibold text-gray-800">{v.moto.apelido}</span>
+                      <span className="ml-auto text-[10px] text-gray-400">#{v.id}</span>
+                    </div>
+                    <div className="text-[10px] text-gray-500 space-y-0.5">
+                      <div className="flex justify-between">
+                        <span>{new Date(v.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span>→</span>
+                        <span>{new Date(v.fim).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      <div className="flex justify-between text-gray-400">
+                        <span>{dur} min</span>
+                        <span className="font-medium text-gray-600">{v.km} km</span>
+                      </div>
+                    </div>
+                    {v.entrega ? (
+                      <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] text-brand-600 font-medium truncate">
+                        NF {v.entrega.notaFiscal} · {v.entrega.status}
+                      </div>
+                    ) : (
+                      <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] text-gray-400 italic">
+                        Sem entrega vinculada
+                      </div>
+                    )}
+                  </button>
+                );
+              });
+            })()}
           </div>
         </div>
       </div>
