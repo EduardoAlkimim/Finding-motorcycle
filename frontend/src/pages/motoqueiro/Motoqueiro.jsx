@@ -70,7 +70,7 @@ export default function Motoqueiro() {
 
   const concluirEntrega = async (entregaId) => {
     try {
-      await entregasApi.concluir(entregaId);
+      await entregasApi.finalizar(id)
       setEntregaAtiva(null);
       await carregar();
     } catch (err) {

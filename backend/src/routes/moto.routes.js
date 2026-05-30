@@ -9,5 +9,6 @@ router.post('/',              autorizar('ADMIN'), c.criar)
 router.put('/:id',            autorizar('ADMIN'), c.atualizar)
 router.get('/:id/posicao',    c.ultimaPosicao)          // última posição
 router.get('/:id/trajeto',    c.trajeto)                // trajeto do dia
+router.get('/:id/viagens',   c.viagens)               // viagens do dia
 
 module.exports = router

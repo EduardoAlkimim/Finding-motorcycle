@@ -40,9 +40,14 @@ export const entregas = {
   buscar:   (id)    => req(`/api/entregas/${id}`),
   criar:    (dados) => req('/api/entregas', { method: 'POST', body: JSON.stringify(dados) }),
   iniciar:  (id)    => req(`/api/entregas/${id}/iniciar`, { method: 'PATCH' }),
-  concluir: (id)    => req(`/api/entregas/${id}/concluir`, { method: 'PATCH' }),
-  confirmarLocal: (id, localEntregaId) =>
-    req(`/api/entregas/${id}/locais/${localEntregaId}/confirmar`, { method: 'PATCH' }),
+  finalizar: (id) =>
+  req(`/api/entregas/${id}/finalizar`, {
+    method: 'PATCH',
+  }),
+  confirmarLocal: (localEntregaId) =>
+  req(`/api/entregas/parada/${localEntregaId}/confirmar`, {
+    method: 'PATCH',
+  }),
 };
 
 export const locais = {
