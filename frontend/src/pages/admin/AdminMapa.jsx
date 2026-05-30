@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import Layout from '../../components/shared/Layout';
-import { Map, BarChart3, Users, MapPin, Bell, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
+import { Map, BarChart3, MapPin, Bell, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
 import { motos as motosApi, entregas as entregasApi, alertas as alertasApi, criarWebSocket } from '../../services/api';
 
 const LOJA = {
@@ -14,17 +14,20 @@ const LOJA = {
 const NAV = [
   { href: '/admin',            label: 'Mapa ao vivo', icon: Map },
   { href: '/admin/relatorios', label: 'Relatórios',   icon: BarChart3 },
-  { href: '/admin/usuarios',   label: 'Usuários',     icon: Users },
   { href: '/admin/locais',     label: 'Locais',       icon: MapPin },
   { href: '/admin/alertas',    label: 'Alertas',      icon: Bell, badge: true },
 ];
 
-const criarIconeMoto = (cor, apelido, velocidade) => L.divIcon({
-  html: `<div style="background:${cor};color:#fff;border-radius:10px;padding:5px 10px;font-size:11px;font-family:'DM Sans',sans-serif;font-weight:500;white-space:nowrap;border:2px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,0.25);display:flex;align-items:center;gap:6px">
-    <span style="width:7px;height:7px;background:#7fff7f;border-radius:50%;display:inline-block;animation:pulse 1.5s ease-out infinite"></span>
-    ${apelido} · ${velocidade ?? '?'}km/h
+const criarIconeMoto = (cor, apelido) => L.divIcon({
+  html: `<div style="display:flex;flex-direction:column;align-items:center;gap:0px">
+    <div style="background:${cor};border-radius:12px;padding:5px 11px;font-size:11px;font-family:'DM Sans',sans-serif;font-weight:600;color:#fff;white-space:nowrap;border:2px solid #fff;box-shadow:0 3px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:6px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg"><path d="M19 7h-1.5l-1.5-3H9L7.5 7H6a3 3 0 0 0-3 3v2a3 3 0 0 0 3 3h.17A3 3 0 0 0 9 17a3 3 0 0 0 2.83-2h.34A3 3 0 0 0 15 17a3 3 0 0 0 2.83-2H19a3 3 0 0 0 3-3v-2a3 3 0 0 0-3-3zm-10 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm6 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
+      ${apelido}
+    </div>
+    <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid ${cor};margin-top:-1px"></div>
   </div>`,
-  className: '', iconAnchor: [50, 14],
+  className: '',
+  iconAnchor: [40, 30],
 });
 
 const criarIconeLoja = () => L.divIcon({
@@ -54,6 +57,7 @@ export default function AdminMapa() {
   const [tabAtiva, setTabAtiva]     = useState('resumo');
   const [motos, setMotos]           = useState([]);
   const [posicoes, setPosicoes]     = useState({});
+  const [trajetos, setTrajetos]     = useState({});
   const [entregasHoje, setEntregas] = useState([]);
   const [listaAlertas, setAlertas]  = useState([]);
   const [loading, setLoading]       = useState(true);
@@ -62,15 +66,17 @@ export default function AdminMapa() {
   useEffect(() => {
     async function carregar() {
       try {
+        const hoje = new Date().toISOString().split('T')[0];
         const [motosData, posicoesData, entregasData, alertasData] = await Promise.all([
           motosApi.listar(),
           motosApi.posicoesLive(),
-          entregasApi.listar({ data: new Date().toISOString().split('T')[0] }),
+          entregasApi.listar({ data: hoje }),
           alertasApi.listar(),
         ]);
         setMotos(motosData);
         setEntregas(entregasData);
         setAlertas(alertasData);
+
         const mapa = {};
         for (const item of posicoesData) {
           if (item.posicao) {
@@ -78,11 +84,23 @@ export default function AdminMapa() {
               lat:        item.posicao.lat,
               lng:        item.posicao.lng,
               velocidade: item.posicao.velocidade,
-              ignicao:    item.posicao.ignicao,
             };
           }
         }
         setPosicoes(mapa);
+
+        // Busca trajeto real de cada moto
+        const trajetosData = {};
+        await Promise.all(
+          motosData.map(async (moto) => {
+            try {
+              const pts = await motosApi.trajeto(moto.id, hoje);
+              if (pts?.length > 1) trajetosData[moto.id] = pts;
+            } catch (_) {}
+          })
+        );
+        setTrajetos(trajetosData);
+
       } catch (err) {
         console.error('Erro ao carregar dados:', err);
       } finally {
@@ -98,7 +116,7 @@ export default function AdminMapa() {
         const d = msg.dados;
         setPosicoes(prev => ({
           ...prev,
-          [d.motoId]: { lat: d.lat, lng: d.lng, velocidade: d.velocidade, ignicao: d.ignicao },
+          [d.motoId]: { lat: d.lat, lng: d.lng, velocidade: d.velocidade },
         }));
       }
     });
@@ -115,16 +133,16 @@ export default function AdminMapa() {
 
   if (loading) {
     return (
-      <Layout navItems={NAV} titulo="Mapa ao vivo">
+      <Layout navItems={NAV}>
         <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-          Carregando dados reais…
+          Carregando dados…
         </div>
       </Layout>
     );
   }
 
   return (
-    <Layout navItems={NAV} titulo="Mapa ao vivo">
+    <Layout navItems={NAV}>
       <div className="bg-white border-b border-gray-100 px-5 py-3 flex items-center justify-between flex-shrink-0">
         <div>
           <h1 className="text-base font-semibold text-gray-900">Mapa ao vivo</h1>
@@ -148,28 +166,33 @@ export default function AdminMapa() {
         <div className="flex-1 relative">
           <MapContainer center={[LOJA.lat, LOJA.lng]} zoom={13} style={{ width: '100%', height: '100%' }} zoomControl={true}>
             <MapaControle />
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            <TileLayer
+              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+              attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+              maxZoom={19}
+            />
 
             <Marker position={[LOJA.lat, LOJA.lng]} icon={criarIconeLoja()}>
               <Popup><strong>🏪 {LOJA.nome}</strong><br/>Ponto de origem</Popup>
             </Marker>
 
+            {/* Motos */}
             {motos.map(moto => {
               const pos = posicoes[moto.id];
               if (!pos) return null;
               return (
-                <Marker key={moto.id} position={[pos.lat, pos.lng]} icon={criarIconeMoto(moto.cor || '#185FA5', moto.apelido, pos.velocidade)}>
+                <Marker key={moto.id} position={[pos.lat, pos.lng]} icon={criarIconeMoto(moto.cor || '#185FA5', moto.apelido)}>
                   <Popup>
                     <strong>{moto.apelido}</strong><br/>
                     Placa: {moto.placa}<br/>
                     Motoqueiro: {moto.motoqueiro?.nome || '—'}<br/>
-                    Velocidade: {pos.velocidade ?? '?'} km/h<br/>
-                    Ignição: {pos.ignicao ? '✅ ligada' : '🔴 desligada'}
+                    Velocidade: {pos.velocidade != null ? `${Math.round(pos.velocidade)} km/h` : '—'}
                   </Popup>
                 </Marker>
               );
             })}
 
+            {/* Locais de entrega */}
             {locaisAtivos.map((local, i) => local?.lat && (
               <Marker key={i} position={[local.lat, local.lng]} icon={criarIconeLocal(local.status)}>
                 <Popup>
@@ -180,13 +203,26 @@ export default function AdminMapa() {
               </Marker>
             ))}
 
+            {/* Trajeto real do GPS */}
+            {motos.map(moto => {
+              const pts = trajetos[moto.id];
+              if (!pts?.length) return null;
+              return (
+                <Polyline key={`trajeto-${moto.id}`}
+                  positions={pts.map(p => [p.lat, p.lng])}
+                  pathOptions={{ color: moto.cor || '#185FA5', weight: 3, opacity: 0.7 }}
+                />
+              );
+            })}
+
+            {/* Linha tracejada loja → posição atual (quando sem trajeto) */}
             {motos.map(moto => {
               const pos = posicoes[moto.id];
-              if (!pos) return null;
+              if (!pos || trajetos[moto.id]?.length) return null;
               return (
-                <Polyline key={moto.id}
+                <Polyline key={`linha-${moto.id}`}
                   positions={[[LOJA.lat, LOJA.lng], [pos.lat, pos.lng]]}
-                  pathOptions={{ color: moto.cor || '#185FA5', weight: 2, dashArray: '5,8', opacity: 0.5 }}
+                  pathOptions={{ color: moto.cor || '#185FA5', weight: 2, dashArray: '5,8', opacity: 0.4 }}
                 />
               );
             })}
@@ -209,6 +245,7 @@ export default function AdminMapa() {
           </div>
         </div>
 
+        {/* Painel lateral */}
         <div className="w-[240px] bg-white border-l border-gray-100 flex flex-col flex-shrink-0 overflow-hidden">
           <div className="flex border-b border-gray-100">
             {['resumo', 'entregas', 'alertas'].map(t => (

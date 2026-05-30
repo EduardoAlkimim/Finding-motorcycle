@@ -4,9 +4,9 @@ import { useAuth } from '../context/AuthContext';
 import { Truck, MapPin, BarChart3, Route, Eye, EyeOff } from 'lucide-react';
 
 const PERFIS = [
-  { key: 'ADMIN',       label: 'Admin',       email: 'admin@autopecas.com',       icon: '🛡️', desc: 'Visão geral e relatórios' },
-  { key: 'DESPACHANTE', label: 'Despachante', email: 'despachante@autopecas.com', icon: '📋', desc: 'Montar rotas e entregas' },
-  { key: 'MOTOQUEIRO',  label: 'Motoqueiro',  email: 'moto1@autopecas.com',       icon: '🏍️', desc: 'Minhas entregas do dia' },
+  { key: 'ADMIN',       label: 'Admin',       icon: '🛡️' },
+  { key: 'DESPACHANTE', label: 'Despachante', icon: '📋' },
+  { key: 'MOTOQUEIRO',  label: 'Motoqueiro',  icon: '🏍️' },
 ];
 
 const ROTAS = { ADMIN: '/admin', DESPACHANTE: '/despachante', MOTOQUEIRO: '/motoqueiro' };
@@ -15,15 +15,15 @@ export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [perfilSel, setPerfilSel] = useState('DESPACHANTE');
-  const [email, setEmail] = useState('despachante@autopecas.com');
-  const [senha, setSenha] = useState('123456');
+  const [email, setEmail]         = useState('');
+  const [senha, setSenha]         = useState('');
   const [mostrarSenha, setMostrarSenha] = useState(false);
-  const [erro, setErro] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [erro, setErro]           = useState('');
+  const [loading, setLoading]     = useState(false);
 
   const selecionarPerfil = (p) => {
     setPerfilSel(p.key);
-    setEmail(p.email);
+    setSenha('');
     setErro('');
   };
 
@@ -32,7 +32,6 @@ export default function Login() {
     setErro('');
     setLoading(true);
     try {
-      await new Promise(r => setTimeout(r, 400));
       const user = await login(email, senha);
       navigate(ROTAS[user.perfil]);
     } catch (err) {
@@ -64,9 +63,9 @@ export default function Login() {
 
         <div className="space-y-3">
           {[
-            { icon: MapPin,   label: 'GPS em tempo real',         sub: 'Tracker físico nas motos' },
-            { icon: Route,    label: 'KM previsto vs realizado',  sub: 'Anti-fraude automático' },
-            { icon: BarChart3, label: 'Relatórios completos',    sub: 'Por motoqueiro e período' },
+            { icon: MapPin,    label: 'GPS em tempo real',        sub: 'Tracker físico nas motos' },
+            { icon: Route,     label: 'KM previsto vs realizado', sub: 'Anti-fraude automático' },
+            { icon: BarChart3, label: 'Relatórios completos',     sub: 'Por motoqueiro e período' },
           ].map(({ icon: Icon, label, sub }) => (
             <div key={label} className="flex items-center gap-3 bg-white/10 rounded-xl p-3">
               <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -89,7 +88,6 @@ export default function Login() {
             <p className="text-gray-500 text-sm mt-1">Selecione seu perfil para continuar</p>
           </div>
 
-          {/* Seleção de perfil */}
           <div className="grid grid-cols-3 gap-2 mb-6">
             {PERFIS.map(p => (
               <button
@@ -129,6 +127,7 @@ export default function Login() {
                   onChange={e => setSenha(e.target.value)}
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-400 transition-all pr-10"
                   placeholder="••••••"
+                  autoComplete="current-password"
                 />
                 <button
                   type="button"
@@ -148,7 +147,7 @@ export default function Login() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !senha || !email}
               className="w-full bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white font-medium py-2.5 rounded-xl transition-all flex items-center justify-center gap-2"
             >
               {loading ? (
@@ -159,10 +158,6 @@ export default function Login() {
               {loading ? 'Entrando...' : 'Entrar'}
             </button>
           </form>
-
-          <p className="text-center text-xs text-gray-400 mt-6">
-            Senha padrão: <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded">123456</span>
-          </p>
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import AdminMapa from './pages/admin/AdminMapa';
 import AdminRelatorios from './pages/admin/AdminRelatorios';
 import AdminLocais from './pages/admin/AdminLocais';
+import AdminAlertas from './pages/admin/AdminAlertas';
 import Despachante from './pages/despachante/Despachante';
 import DespachanteMapa from './pages/despachante/DespachanteMapa';
 import DespachanteAlertas from './pages/despachante/DespachanteLertas';
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="/admin" element={<RotaProtegida perfis={['ADMIN']}><AdminMapa /></RotaProtegida>} />
             <Route path="/admin/relatorios" element={<RotaProtegida perfis={['ADMIN']}><AdminRelatorios /></RotaProtegida>} />
             <Route path="/admin/locais" element={<RotaProtegida perfis={['ADMIN']}><AdminLocais /></RotaProtegida>} />
+            <Route path="/admin/alertas" element={<RotaProtegida perfis={['ADMIN']}><AdminAlertas /></RotaProtegida>} />
 
             {/* Despachante */}
             <Route path="/despachante" element={<RotaProtegida perfis={['DESPACHANTE','ADMIN']}><Despachante /></RotaProtegida>} />

@@ -60,7 +60,7 @@ export const alertas = {
 export const relatorios = {
   resumo: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
-    return req(`/api/relatorios/resumo${qs ? `?${qs}` : ''}`);
+    return req(`/api/relatorios/dashboard${qs ? `?${qs}` : ''}`);
   },
 };
 
