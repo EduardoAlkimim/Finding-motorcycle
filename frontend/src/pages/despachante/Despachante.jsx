@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import Layout from '../../components/shared/Layout';
-import { ClipboardList, Map, Bell, Plus, X, Send, ChevronRight, CheckCircle2, Loader2, MapPin, Trash2, AlertCircle } from 'lucide-react';
+import {
+  ClipboardList, Map, Bell, Plus, X, Send, CheckCircle2, Loader2,
+  MapPin, Trash2, AlertCircle, ChevronRight, Play, Flag, Home, RotateCcw,
+} from 'lucide-react';
 import { motos as motosApi, locais as locaisApi, entregas as entregasApi } from '../../services/api';
 
 const NAV = [
@@ -12,10 +15,12 @@ const NAV = [
 ];
 
 const STATUS_CONFIG = {
-  CONCLUIDA: { label: 'Concluída', cor: 'bg-green-100 text-green-700 border-green-200' },
-  EM_ROTA:   { label: 'Em rota',   cor: 'bg-blue-50 text-blue-600 border-blue-200' },
-  PENDENTE:  { label: 'Pendente',  cor: 'bg-gray-100 text-gray-500 border-gray-200' },
-  CANCELADA: { label: 'Cancelada', cor: 'bg-red-50 text-red-500 border-red-200' },
+  PENDENTE:      { label: 'Pendente',       cor: 'bg-gray-100 text-gray-500 border-gray-200' },
+  EM_ROTA:       { label: 'Em rota',        cor: 'bg-blue-50 text-blue-600 border-blue-200' },
+  CONCLUIDA:     { label: 'Concluída',      cor: 'bg-yellow-50 text-yellow-600 border-yellow-200' },
+  VOLTANDO_LOJA: { label: 'Voltando loja',  cor: 'bg-orange-50 text-orange-600 border-orange-200' },
+  FINALIZADA:    { label: 'Finalizada',     cor: 'bg-green-100 text-green-700 border-green-200' },
+  CANCELADA:     { label: 'Cancelada',      cor: 'bg-red-50 text-red-500 border-red-200' },
 };
 
 const LOJA = {
@@ -57,21 +62,160 @@ function formatarHora(iso) {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function Despachante() {
-  const [aba, setAba]           = useState('lista');
-  const [motos, setMotos]       = useState([]);
-  const [locais, setLocais]     = useState([]);
-  const [entregas, setEntregas] = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [enviando, setEnviando] = useState(false);
-  const [sucesso, setSucesso]   = useState(false);
-  const [deletando, setDeletando] = useState(null);
-  const [confirmarDeletar, setConfirmarDeletar] = useState(null);
+function km(val) {
+  if (!val && val !== 0) return '—';
+  return `${parseFloat(val).toFixed(1)} km`;
+}
 
-  const [locaisSel, setLocaisSel] = useState([]);
-  const [motoSel, setMotoSel]     = useState('');
-  const [nf, setNf]               = useState('');
-  const [kmEstimado, setKmEstimado] = useState(null);
+// ─── Modal de detalhes da entrega ───────────────────────────────────────────
+function ModalEntrega({ entrega, onClose, onAcao, atualizando }) {
+  const cfg = STATUS_CONFIG[entrega.status] || STATUS_CONFIG.PENDENTE;
+  const moto = entrega.moto;
+  const confirmadas = (entrega.locais || []).filter(l => l.status === 'CONFIRMADO').length;
+  const total = (entrega.locais || []).length;
+
+  const acoes = [];
+  if (entrega.status === 'PENDENTE')      acoes.push({ label: 'Iniciar rota',       acao: 'iniciar',        icon: Play,   cor: 'bg-blue-500 hover:bg-blue-600' });
+  if (entrega.status === 'EM_ROTA')       acoes.push({ label: 'Concluir entregas',  acao: 'concluir',       icon: Flag,   cor: 'bg-yellow-500 hover:bg-yellow-600' });
+  if (entrega.status === 'CONCLUIDA')     acoes.push({ label: 'Iniciar retorno',    acao: 'retorno',        icon: Home,   cor: 'bg-orange-500 hover:bg-orange-600' });
+  if (entrega.status === 'VOLTANDO_LOJA') acoes.push({ label: 'Confirmar chegada',  acao: 'finalizar',      icon: CheckCircle2, cor: 'bg-green-500 hover:bg-green-600' });
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-start justify-between p-5 border-b border-gray-100">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-base font-semibold text-gray-900 font-mono">{entrega.notaFiscal}</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${cfg.cor}`}>{cfg.label}</span>
+            </div>
+            {moto && (
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full" style={{ background: moto.cor || '#185FA5' }}></span>
+                <span className="text-xs text-gray-400">{moto.apelido} · {entrega.motoqueiro?.nome || '—'}</span>
+              </div>
+            )}
+          </div>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-all">
+            <X size={15} />
+          </button>
+        </div>
+
+        {/* Paradas */}
+        <div className="p-5 border-b border-gray-100">
+          <div className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-3">Paradas ({confirmadas}/{total})</div>
+          <div className="space-y-2">
+            {(entrega.locais || []).map((el, i) => {
+              const local = el.local;
+              if (!local) return null;
+              return (
+                <div key={el.id || i} className="flex items-start gap-2.5">
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-semibold flex-shrink-0 mt-0.5 ${
+                    el.status === 'CONFIRMADO' ? 'bg-green-500 text-white' :
+                    el.status === 'CHEGOU'     ? 'bg-blue-500 text-white' :
+                    el.status === 'PROBLEMA'   ? 'bg-red-400 text-white' :
+                    'bg-gray-100 text-gray-400'
+                  }`}>{i + 1}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-gray-800">{local.nome}</div>
+                    <div className="text-[10px] text-gray-400 truncate">{local.endereco}</div>
+                    {el.chegouEm && (
+                      <div className="text-[10px] text-gray-400 mt-0.5">
+                        Chegou {formatarHora(el.chegouEm)}
+                        {el.confirmadoEm ? ` · Confirmado ${formatarHora(el.confirmadoEm)}` : ''}
+                      </div>
+                    )}
+                  </div>
+                  {el.status === 'CONFIRMADO' && <CheckCircle2 size={13} className="text-green-500 flex-shrink-0 mt-0.5" />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* KM */}
+        <div className="p-5 border-b border-gray-100">
+          <div className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-3">Quilometragem</div>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: 'Previsto entregas', val: entrega.kmPrevisto },
+              { label: 'Realizado entregas', val: entrega.kmRealizado },
+              { label: 'Previsto retorno', val: entrega.kmRetornoPrevisto },
+              { label: 'Realizado retorno', val: entrega.kmRetorno },
+            ].map(({ label, val }) => (
+              <div key={label} className="bg-gray-50 rounded-xl p-3">
+                <div className="text-[10px] text-gray-400 mb-1">{label}</div>
+                <div className="text-sm font-semibold text-gray-800">{km(val)}</div>
+              </div>
+            ))}
+          </div>
+          {entrega.kmTotal != null && (
+            <div className="mt-2 bg-brand-50 border border-brand-100 rounded-xl p-3 flex items-center justify-between">
+              <span className="text-xs text-brand-700 font-medium">Total percorrido</span>
+              <span className="text-sm font-bold text-brand-700">{km(entrega.kmTotal)}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Timeline */}
+        <div className="p-5 border-b border-gray-100">
+          <div className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-3">Timeline</div>
+          <div className="space-y-1.5 text-[11px]">
+            {[
+              { label: 'Criada',             val: entrega.criadoEm },
+              { label: 'Saída',              val: entrega.saidaEm },
+              { label: 'Entregas concluídas',val: entrega.chegadaEm },
+              { label: 'Retorno iniciado',   val: entrega.retornoIniciadoEm },
+              { label: 'Finalizada',         val: entrega.finalizadoEm },
+            ].filter(t => t.val).map(({ label, val }) => (
+              <div key={label} className="flex justify-between text-gray-600">
+                <span className="text-gray-400">{label}</span>
+                <span className="font-medium">{formatarHora(val)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Ações */}
+        {acoes.length > 0 && (
+          <div className="p-5 space-y-2">
+            {acoes.map(({ label, acao, icon: Icon, cor }) => (
+              <button
+                key={acao}
+                onClick={() => onAcao(entrega.id, acao)}
+                disabled={atualizando === entrega.id}
+                className={`w-full flex items-center justify-center gap-2 ${cor} disabled:opacity-50 text-white py-2.5 rounded-xl text-sm font-medium transition-all`}
+              >
+                {atualizando === entrega.id ? <Loader2 size={14} className="animate-spin" /> : <Icon size={14} />}
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Componente principal ────────────────────────────────────────────────────
+export default function Despachante() {
+  const [aba, setAba]                 = useState('lista');
+  const [motos, setMotos]             = useState([]);
+  const [locais, setLocais]           = useState([]);
+  const [entregas, setEntregas]       = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [enviando, setEnviando]       = useState(false);
+  const [sucesso, setSucesso]         = useState(false);
+  const [deletando, setDeletando]     = useState(null);
+  const [atualizando, setAtualizando] = useState(null);
+  const [confirmarDeletar, setConfirmarDeletar] = useState(null);
+  const [entregaAberta, setEntregaAberta]       = useState(null);
+
+  const [locaisSel, setLocaisSel]       = useState([]);
+  const [motoSel, setMotoSel]           = useState('');
+  const [nf, setNf]                     = useState('');
+  const [kmEstimado, setKmEstimado]     = useState(null);
   const [calculandoKm, setCalculandoKm] = useState(false);
   const kmTimerRef = useRef(null);
 
@@ -85,6 +229,10 @@ export default function Despachante() {
       setMotos(motosData);
       setLocais(locaisData);
       setEntregas(entregasData);
+      // Atualiza entrega aberta se existir
+      setEntregaAberta(prev =>
+        prev ? entregasData.find(e => e.id === prev.id) || null : null
+      );
     } catch (err) {
       console.error('Erro ao carregar:', err);
     } finally {
@@ -94,7 +242,6 @@ export default function Despachante() {
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  // Recalcula KM quando locais selecionados mudam
   useEffect(() => {
     if (locaisSel.length === 0) { setKmEstimado(null); return; }
     if (kmTimerRef.current) clearTimeout(kmTimerRef.current);
@@ -132,10 +279,27 @@ export default function Despachante() {
         await carregar();
       }, 1500);
     } catch (err) {
-      console.error('Erro ao criar entrega:', err);
       alert('Erro ao criar entrega: ' + err.message);
     } finally {
       setEnviando(false);
+    }
+  };
+
+  const executarAcao = async (id, acao) => {
+    setAtualizando(id);
+    try {
+      const fns = {
+        iniciar:   () => entregasApi.iniciar(id),
+        concluir:  () => entregasApi.concluir(id),
+        retorno:   () => entregasApi.iniciarRetorno(id),
+        finalizar: () => entregasApi.finalizar(id),
+      };
+      await fns[acao]?.();
+      await carregar();
+    } catch (err) {
+      alert('Erro: ' + err.message);
+    } finally {
+      setAtualizando(null);
     }
   };
 
@@ -152,7 +316,6 @@ export default function Despachante() {
     }
   };
 
-  // Linha da rota no mapa de nova entrega
   const linhaRota = locaisSel.length > 0
     ? [LOJA, ...locaisSel.map(l => ({ lat: l.lat, lng: l.lng })), LOJA].map(p => [p.lat, p.lng])
     : [];
@@ -193,9 +356,9 @@ export default function Despachante() {
           <div className="flex-1 overflow-y-auto scrollbar-thin p-5">
             <div className="grid grid-cols-3 gap-3 mb-5">
               {[
-                { label: 'Total hoje', valor: entregas.length, cor: 'text-gray-900' },
-                { label: 'Em rota',    valor: entregas.filter(e => e.status === 'EM_ROTA').length, cor: 'text-blue-600' },
-                { label: 'Concluídas', valor: entregas.filter(e => e.status === 'CONCLUIDA').length, cor: 'text-green-600' },
+                { label: 'Total hoje',  valor: entregas.length,                                                  cor: 'text-gray-900' },
+                { label: 'Em rota',     valor: entregas.filter(e => ['EM_ROTA','VOLTANDO_LOJA'].includes(e.status)).length, cor: 'text-blue-600' },
+                { label: 'Finalizadas', valor: entregas.filter(e => e.status === 'FINALIZADA').length,           cor: 'text-green-600' },
               ].map(c => (
                 <div key={c.label} className="bg-white border border-gray-100 rounded-xl p-3 text-center">
                   <div className={`text-2xl font-semibold ${c.cor}`}>{c.valor}</div>
@@ -216,8 +379,13 @@ export default function Despachante() {
                   const moto = motos.find(m => m.id === e.motoId);
                   const cfg  = STATUS_CONFIG[e.status] || STATUS_CONFIG.PENDENTE;
                   const confirmadas = (e.locais || []).filter(l => l.status === 'CONFIRMADO').length;
+                  const podeDeletar = !['EM_ROTA','VOLTANDO_LOJA'].includes(e.status);
                   return (
-                    <div key={e.id} className="bg-white border border-gray-100 rounded-xl p-4 hover:border-gray-200 transition-all">
+                    <div
+                      key={e.id}
+                      className="bg-white border border-gray-100 rounded-xl p-4 hover:border-gray-200 transition-all cursor-pointer"
+                      onClick={() => setEntregaAberta(e)}
+                    >
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <div className="flex items-center gap-2">
@@ -231,14 +399,17 @@ export default function Despachante() {
                             </div>
                           )}
                         </div>
-                        {e.status !== 'EM_ROTA' && (
-                          <button
-                            onClick={() => setConfirmarDeletar(e.id)}
-                            className="p-1.5 text-gray-300 hover:text-red-400 hover:bg-red-50 rounded-lg transition-all"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        )}
+                        <div className="flex items-center gap-1" onClick={ev => ev.stopPropagation()}>
+                          {podeDeletar && (
+                            <button
+                              onClick={() => setConfirmarDeletar(e.id)}
+                              className="p-1.5 text-gray-300 hover:text-red-400 hover:bg-red-50 rounded-lg transition-all"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                          <ChevronRight size={14} className="text-gray-300" />
+                        </div>
                       </div>
 
                       <div className="space-y-1 mt-3">
@@ -252,32 +423,23 @@ export default function Despachante() {
                                 el.status === 'CHEGOU'     ? 'bg-blue-500 text-white' :
                                 'bg-gray-100 text-gray-400'
                               }`}>{i + 1}</div>
-                              <div className="flex-1 min-w-0">
-                                <div className="text-xs text-gray-700 truncate">{local.nome}</div>
-                                {el.chegouEm && (
-                                  <div className="text-[10px] text-gray-400">
-                                    Chegou {formatarHora(el.chegouEm)}
-                                    {el.saiuEm ? ` · Saiu ${formatarHora(el.saiuEm)}` : ''}
-                                  </div>
-                                )}
-                              </div>
-                              {el.status === 'CONFIRMADO' && <CheckCircle2 size={12} className="text-green-500 flex-shrink-0" />}
+                              <span className="text-xs text-gray-700 truncate">{local.nome}</span>
+                              {el.status === 'CONFIRMADO' && <CheckCircle2 size={11} className="text-green-500 ml-auto flex-shrink-0" />}
                             </div>
                           );
                         })}
                       </div>
 
-                      {e.kmPrevisto && (
-                        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-50 text-[10px] text-gray-400">
-                          <span>Prev. {e.kmPrevisto} km</span>
-                          {e.kmRealizado && (
-                            <span className={e.kmRealizado > e.kmPrevisto ? 'text-red-500' : 'text-green-600'}>
-                              Real. {e.kmRealizado} km
-                            </span>
-                          )}
-                          <span className="ml-auto">{confirmadas}/{(e.locais || []).length} confirmadas</span>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-50 text-[10px] text-gray-400">
+                        {e.kmPrevisto && <span>Prev. {parseFloat(e.kmPrevisto).toFixed(1)} km</span>}
+                        {e.kmRealizado && (
+                          <span className={parseFloat(e.kmRealizado) > parseFloat(e.kmPrevisto) ? 'text-red-500' : 'text-green-600'}>
+                            Real. {parseFloat(e.kmRealizado).toFixed(1)} km
+                          </span>
+                        )}
+                        {e.kmTotal && <span className="font-medium text-brand-600">Total {parseFloat(e.kmTotal).toFixed(1)} km</span>}
+                        <span className="ml-auto">{confirmadas}/{(e.locais || []).length} confirmadas</span>
+                      </div>
                     </div>
                   );
                 })}
@@ -344,7 +506,6 @@ export default function Despachante() {
                       <div className="flex flex-col items-center gap-2 py-4 text-center text-gray-400">
                         <MapPin size={20} className="text-gray-300" />
                         <div className="text-xs">Nenhum local cadastrado.</div>
-                        <div className="text-[10px] text-gray-300">Cadastre locais no painel Admin → Locais</div>
                       </div>
                     ) : (
                       <div className="space-y-1.5 max-h-48 overflow-y-auto scrollbar-thin">
@@ -401,7 +562,6 @@ export default function Despachante() {
               )}
             </div>
 
-            {/* Mapa de seleção */}
             <div className="flex-1 relative">
               <MapContainer center={[LOJA.lat, LOJA.lng]} zoom={13} style={{ width: '100%', height: '100%' }} zoomControl={true}>
                 <TileLayer
@@ -432,14 +592,20 @@ export default function Despachante() {
                   <Polyline positions={linhaRota} pathOptions={{ color: '#185FA5', weight: 2, dashArray: '5,8', opacity: 0.6 }} />
                 )}
               </MapContainer>
-              <div className="absolute top-3 right-3 bg-white rounded-xl shadow-lg border border-gray-100 p-3 text-xs z-[400]">
-                <div className="font-medium text-gray-700 mb-1">Clique nos pins</div>
-                <div className="text-gray-400">para adicionar destinos</div>
-              </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* Modal detalhes da entrega */}
+      {entregaAberta && (
+        <ModalEntrega
+          entrega={entregaAberta}
+          onClose={() => setEntregaAberta(null)}
+          onAcao={executarAcao}
+          atualizando={atualizando}
+        />
+      )}
 
       {/* Modal confirmar deletar */}
       {confirmarDeletar && (

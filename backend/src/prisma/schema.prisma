@@ -8,10 +8,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─────────────────────────────────────────
-// USUÁRIOS
-// ─────────────────────────────────────────
-
 enum Perfil {
   ADMIN
   DESPACHANTE
@@ -35,10 +31,6 @@ model Usuario {
   @@map("usuarios")
 }
 
-// ─────────────────────────────────────────
-// MOTOS
-// ─────────────────────────────────────────
-
 model Moto {
   id         String   @id @default(uuid())
   placa      String   @unique
@@ -57,10 +49,6 @@ model Moto {
   @@map("motos")
 }
 
-// ─────────────────────────────────────────
-// LOCAIS DE ENTREGA
-// ─────────────────────────────────────────
-
 model Local {
   id       String  @id @default(uuid())
   nome     String
@@ -75,32 +63,31 @@ model Local {
   @@map("locais")
 }
 
-// ─────────────────────────────────────────
-// ENTREGAS
-// ─────────────────────────────────────────
-
 enum StatusEntrega {
   PENDENTE
   EM_ROTA
   CONCLUIDA
-  CANCELADA
+  VOLTANDO_LOJA
   FINALIZADA
-
+  CANCELADA
 }
 
 model Entrega {
-  id           String        @id @default(uuid())
-  notaFiscal   String
-  status       StatusEntrega @default(PENDENTE)
-  kmPrevisto   Float?
-  kmRealizado  Float?
-  observacoes  String?
-  saidaEm     DateTime?
-  chegadaEm   DateTime?
-  finalizadoEm DateTime?
-  kmRetorno    Float?
-  criadoEm    DateTime      @default(now())
-  atualizadoEm DateTime     @updatedAt
+  id                 String        @id @default(uuid())
+  notaFiscal         String
+  status             StatusEntrega @default(PENDENTE)
+  kmPrevisto         Float?
+  kmRealizado        Float?
+  kmRetornoPrevisto  Float?
+  kmRetorno          Float?
+  kmTotal            Float?
+  observacoes        String?
+  saidaEm            DateTime?
+  chegadaEm          DateTime?
+  retornoIniciadoEm  DateTime?
+  finalizadoEm       DateTime?
+  criadoEm           DateTime      @default(now())
+  atualizadoEm       DateTime      @updatedAt
 
   despachante    Usuario @relation("DespachanteCriador", fields: [despachanteId], references: [id])
   despachanteId  String
@@ -117,10 +104,6 @@ model Entrega {
 
   @@map("entregas")
 }
-
-// ─────────────────────────────────────────
-// PARADAS DE UMA ENTREGA
-// ─────────────────────────────────────────
 
 enum StatusParada {
   PENDENTE
@@ -147,10 +130,6 @@ model EntregaLocal {
   @@map("entrega_locais")
 }
 
-// ─────────────────────────────────────────
-// POSIÇÕES GPS
-// ─────────────────────────────────────────
-
 model Posicao {
   id           String   @id @default(uuid())
   lat          Float
@@ -168,10 +147,6 @@ model Posicao {
   @@index([motoId, registradoEm])
   @@map("posicoes")
 }
-
-// ─────────────────────────────────────────
-// ALERTAS
-// ─────────────────────────────────────────
 
 enum TipoAlerta {
   DESVIO_ROTA
