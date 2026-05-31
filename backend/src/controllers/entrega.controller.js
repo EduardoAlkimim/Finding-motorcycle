@@ -1,8 +1,8 @@
 const { PrismaClient } = require('@prisma/client')
 const { z } = require('zod')
-const { calcularKmPrevisto } = require('../services/osrm.service')
-const { emitirParaTodos }    = require('../services/websocket.service')
-const { gerarAlertas }       = require('../services/alerta.service')
+const { calcularKmPrevisto, LOJA } = require('../services/osrm.service')
+const { emitirParaTodos }          = require('../services/websocket.service')
+const { gerarAlertas }             = require('../services/alerta.service')
 
 const prisma = new PrismaClient()
 
@@ -14,7 +14,6 @@ const criarSchema = z.object({
   observacoes:  z.string().optional(),
 })
 
-// Inclui tudo que o frontend precisa
 const INCLUDE_COMPLETO = {
   despachante: { select: { id: true, nome: true } },
   motoqueiro:  { select: { id: true, nome: true } },
@@ -32,7 +31,6 @@ const listar = async (req, res) => {
     const { data, motoqueiroId, status } = req.query
     const where = {}
 
-    // Filtro por data
     if (data) {
       const inicio = new Date(`${data}T00:00:00`)
       const fim    = new Date(`${data}T23:59:59`)
@@ -42,7 +40,6 @@ const listar = async (req, res) => {
     if (motoqueiroId) where.motoqueiroId = motoqueiroId
     if (status)       where.status       = status
 
-    // Motoqueiro só vê as próprias entregas
     if (req.usuario.perfil === 'MOTOQUEIRO') {
       where.motoqueiroId = req.usuario.id
     }
@@ -78,18 +75,24 @@ const criar = async (req, res) => {
   try {
     const dados = criarSchema.parse(req.body)
 
-    // Busca os locais para calcular KM previsto via OSRM
     const locais = await prisma.local.findMany({ where: { id: { in: dados.locaisIds } } })
     const kmPrevisto = await calcularKmPrevisto(locais)
 
+    // Calcula km de retorno (último local → loja)
+    const ultimoLocal = locais[locais.length - 1]
+    const kmRetornoPrevisto = ultimoLocal
+      ? await calcularKmPrevisto([ultimoLocal], true)
+      : 0
+
     const entrega = await prisma.entrega.create({
       data: {
-        notaFiscal:   dados.notaFiscal,
-        observacoes:  dados.observacoes,
-        despachanteId: req.usuario.id,
-        motoqueiroId: dados.motoqueiroId || null,
-        motoId:       dados.motoId || null,
+        notaFiscal:          dados.notaFiscal,
+        observacoes:         dados.observacoes,
+        despachanteId:       req.usuario.id,
+        motoqueiroId:        dados.motoqueiroId || null,
+        motoId:              dados.motoId || null,
         kmPrevisto,
+        kmRetornoPrevisto,
         locais: {
           create: dados.locaisIds.map((localId, index) => ({
             localId,
@@ -100,9 +103,7 @@ const criar = async (req, res) => {
       include: INCLUDE_COMPLETO,
     })
 
-    // Notifica frontend em tempo real
     emitirParaTodos('nova_entrega', entrega)
-
     return res.status(201).json(entrega)
   } catch (err) {
     if (err instanceof z.ZodError) return res.status(400).json({ erro: err.errors[0].message })
@@ -111,7 +112,7 @@ const criar = async (req, res) => {
   }
 }
 
-// PATCH /api/entregas/:id/iniciar — moto saiu
+// PATCH /api/entregas/:id/iniciar
 const iniciar = async (req, res) => {
   try {
     const entrega = await prisma.entrega.update({
@@ -126,7 +127,93 @@ const iniciar = async (req, res) => {
   }
 }
 
-// PATCH /api/entregas/parada/:entregaLocalId/confirmar — motoqueiro confirma parada
+// PATCH /api/entregas/:id/concluir — todas as paradas feitas, começa retorno
+const concluir = async (req, res) => {
+  try {
+    // Calcula km realizado nas entregas
+    const posicoes = await prisma.posicao.findMany({
+      where:   { entregaId: req.params.id },
+      orderBy: { registradoEm: 'asc' },
+    })
+    const kmRealizado = calcularKmTrajeto(posicoes)
+
+    const entrega = await prisma.entrega.update({
+      where: { id: req.params.id },
+      data:  {
+        status:      'CONCLUIDA',
+        chegadaEm:   new Date(),
+        kmRealizado,
+      },
+      include: INCLUDE_COMPLETO,
+    })
+
+    await gerarAlertas(entrega)
+    emitirParaTodos('entrega_concluida', entrega)
+    return res.json(entrega)
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ erro: 'Erro ao concluir entrega' })
+  }
+}
+
+// PATCH /api/entregas/:id/retorno — motoqueiro saiu para voltar à loja
+const iniciarRetorno = async (req, res) => {
+  try {
+    const atual = await prisma.entrega.findUnique({ where: { id: req.params.id } })
+    if (!atual) return res.status(404).json({ erro: 'Entrega não encontrada' })
+    if (atual.status !== 'CONCLUIDA') return res.status(400).json({ erro: 'Entrega precisa estar CONCLUIDA para iniciar retorno' })
+
+    const entrega = await prisma.entrega.update({
+      where: { id: req.params.id },
+      data:  { status: 'VOLTANDO_LOJA', retornoIniciadoEm: new Date() },
+      include: INCLUDE_COMPLETO,
+    })
+
+    emitirParaTodos('retorno_iniciado', { entregaId: entrega.id, motoId: entrega.motoId })
+    return res.json(entrega)
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ erro: 'Erro ao iniciar retorno' })
+  }
+}
+
+// PATCH /api/entregas/:id/finalizar — motoqueiro chegou na loja
+const finalizar = async (req, res) => {
+  try {
+    const atual = await prisma.entrega.findUnique({ where: { id: req.params.id } })
+    if (!atual) return res.status(404).json({ erro: 'Entrega não encontrada' })
+
+    // Calcula km do retorno (posições após retornoIniciadoEm)
+    const posRetorno = atual.retornoIniciadoEm
+      ? await prisma.posicao.findMany({
+          where:   { motoId: atual.motoId, registradoEm: { gte: atual.retornoIniciadoEm } },
+          orderBy: { registradoEm: 'asc' },
+        })
+      : []
+
+    const kmRetorno = calcularKmTrajeto(posRetorno)
+    const kmTotal   = parseFloat(((atual.kmRealizado || 0) + kmRetorno).toFixed(2))
+
+    const entrega = await prisma.entrega.update({
+      where: { id: req.params.id },
+      data:  {
+        status:       'FINALIZADA',
+        finalizadoEm: new Date(),
+        kmRetorno,
+        kmTotal,
+      },
+      include: INCLUDE_COMPLETO,
+    })
+
+    emitirParaTodos('entrega_finalizada', entrega)
+    return res.json(entrega)
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ erro: 'Erro ao finalizar entrega' })
+  }
+}
+
+// PATCH /api/entregas/parada/:entregaLocalId/confirmar
 const confirmarParada = async (req, res) => {
   try {
     const { entregaLocalId } = req.params
@@ -140,7 +227,6 @@ const confirmarParada = async (req, res) => {
     })
     if (!entregaLocal) return res.status(404).json({ erro: 'Parada não encontrada' })
 
-    // Anti-fraude: verifica se GPS estava perto do local
     const ultimaPos = await prisma.posicao.findFirst({
       where:   { motoId: entregaLocal.entrega.motoId },
       orderBy: { registradoEm: 'desc' },
@@ -157,7 +243,7 @@ const confirmarParada = async (req, res) => {
         statusFinal = 'PROBLEMA'
         await prisma.alerta.create({
           data: {
-            tipo: 'CONFIRMACAO_SEM_GPS',
+            tipo:      'CONFIRMACAO_SEM_GPS',
             descricao: `Motoqueiro confirmou em "${entregaLocal.local.nome}" mas GPS estava a ${Math.round(distancia)}m`,
             entregaId: entregaLocal.entregaId,
           },
@@ -165,20 +251,6 @@ const confirmarParada = async (req, res) => {
         emitirParaTodos('novo_alerta', { tipo: 'CONFIRMACAO_SEM_GPS', local: entregaLocal.local.nome })
       }
     }
-
-    // DELETE /api/entregas/:id
-const deletar = async (req, res) => {
-  try {
-    const entrega = await prisma.entrega.findUnique({ where: { id: req.params.id } })
-    if (!entrega) return res.status(404).json({ erro: 'Entrega não encontrada' })
-    if (entrega.status === 'EM_ROTA') return res.status(400).json({ erro: 'Não é possível deletar entrega em andamento' })
-    await prisma.entrega.delete({ where: { id: req.params.id } })
-    return res.json({ mensagem: 'Entrega removida' })
-  } catch (err) {
-    console.error(err)
-    return res.status(500).json({ erro: 'Erro ao deletar entrega' })
-  }
-}
 
     const atualizado = await prisma.entregaLocal.update({
       where: { id: entregaLocalId },
@@ -198,28 +270,19 @@ const deletar = async (req, res) => {
   }
 }
 
-// PATCH /api/entregas/:id/finalizar — moto voltou
-const finalizar = async (req, res) => {
+// DELETE /api/entregas/:id
+const deletar = async (req, res) => {
   try {
-    const posicoes = await prisma.posicao.findMany({
-      where:   { entregaId: req.params.id },
-      orderBy: { registradoEm: 'asc' },
-    })
-    const kmRealizado = calcularKmTrajeto(posicoes)
-
-    const entrega = await prisma.entrega.update({
-      where: { id: req.params.id },
-      data:  { status: 'CONCLUIDA', chegadaEm: new Date(), kmRealizado },
-      include: INCLUDE_COMPLETO,
-    })
-
-    // Gera alerta se desvio > 40%
-    await gerarAlertas(entrega)
-
-    emitirParaTodos('entrega_finalizada', entrega)
-    return res.json(entrega)
-  } catch {
-    return res.status(500).json({ erro: 'Erro ao finalizar entrega' })
+    const entrega = await prisma.entrega.findUnique({ where: { id: req.params.id } })
+    if (!entrega) return res.status(404).json({ erro: 'Entrega não encontrada' })
+    if (entrega.status === 'EM_ROTA' || entrega.status === 'VOLTANDO_LOJA') {
+      return res.status(400).json({ erro: 'Não é possível deletar entrega em andamento' })
+    }
+    await prisma.entrega.delete({ where: { id: req.params.id } })
+    return res.json({ mensagem: 'Entrega removida' })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ erro: 'Erro ao deletar entrega' })
   }
 }
 
@@ -245,6 +308,7 @@ function calcularKmTrajeto(posicoes) {
       posicoes[i].lat,     posicoes[i].lng
     )
   }
-  return total / 1000
+  return parseFloat((total / 1000).toFixed(2))
 }
-module.exports = { listar, buscarUm, criar, iniciar, confirmarParada, finalizar, deletar }
+
+module.exports = { listar, buscarUm, criar, iniciar, concluir, iniciarRetorno, finalizar, confirmarParada, deletar }
