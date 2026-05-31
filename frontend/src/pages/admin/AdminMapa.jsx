@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import Layout from '../../components/shared/Layout';
-import { Map, BarChart3, MapPin, Bell, AlertTriangle, CheckCircle2, Clock, Route } from 'lucide-react';
+import { Map, BarChart3, MapPin, Bell, AlertTriangle, CheckCircle2, Clock, Route, ChevronRight } from 'lucide-react';
 import { motos as motosApi, entregas as entregasApi, alertas as alertasApi, criarWebSocket } from '../../services/api';
 
 const LOJA = {
@@ -18,16 +18,12 @@ const NAV = [
   { href: '/admin/alertas',    label: 'Alertas',      icon: Bell, badge: true },
 ];
 
-const criarIconeMoto = (cor, apelido) => L.divIcon({
-  html: `<div style="display:flex;flex-direction:column;align-items:center;gap:0px">
-    <div style="background:${cor};border-radius:12px;padding:5px 11px;font-size:11px;font-family:'DM Sans',sans-serif;font-weight:600;color:#fff;white-space:nowrap;border:2px solid #fff;box-shadow:0 3px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:6px">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg"><path d="M19 7h-1.5l-1.5-3H9L7.5 7H6a3 3 0 0 0-3 3v2a3 3 0 0 0 3 3h.17A3 3 0 0 0 9 17a3 3 0 0 0 2.83-2h.34A3 3 0 0 0 15 17a3 3 0 0 0 2.83-2H19a3 3 0 0 0 3-3v-2a3 3 0 0 0-3-3zm-10 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm6 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
-      ${apelido}
-    </div>
-    <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid ${cor};margin-top:-1px"></div>
+const criarIconeMoto = (cor, apelido, velocidade) => L.divIcon({
+  html: `<div style="background:${cor};color:#fff;border-radius:10px;padding:5px 10px;font-size:11px;font-family:'DM Sans',sans-serif;font-weight:500;white-space:nowrap;border:2px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,0.25);display:flex;align-items:center;gap:6px">
+    <span style="width:7px;height:7px;background:#7fff7f;border-radius:50%;display:inline-block;animation:pulse 1.5s ease-out infinite"></span>
+    ${apelido} · ${velocidade ?? '?'}km/h
   </div>`,
-  className: '',
-  iconAnchor: [40, 30],
+  className: '', iconAnchor: [50, 14],
 });
 
 const criarIconeLoja = () => L.divIcon({
@@ -36,9 +32,7 @@ const criarIconeLoja = () => L.divIcon({
 });
 
 const criarIconeLocal = (status) => L.divIcon({
-  html: `<div style="width:12px;height:12px;border-radius:50%;background:${
-    status === 'CONFIRMADO' ? '#16a34a' : status === 'CHEGOU' ? '#2563eb' : '#ef4444'
-  };border:2.5px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,0.3)"></div>`,
+  html: `<div style="width:12px;height:12px;border-radius:50%;background:${status === 'CONFIRMADO' ? '#16a34a' : status === 'CHEGOU' ? '#2563eb' : '#ef4444'};border:2.5px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,0.3)"></div>`,
   className: '', iconAnchor: [6, 6],
 });
 
@@ -55,26 +49,29 @@ function MapaControle() {
   return null;
 }
 
+function formatarHora(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
 export default function AdminMapa() {
   const [tabAtiva, setTabAtiva]       = useState('resumo');
   const [motos, setMotos]             = useState([]);
   const [posicoes, setPosicoes]       = useState({});
-  const [trajetos, setTrajetos]       = useState({});
   const [entregasHoje, setEntregas]   = useState([]);
   const [listaAlertas, setAlertas]    = useState([]);
   const [loading, setLoading]         = useState(true);
-  const [viagensData, setViagens]     = useState({});
-  const [viagemAtiva, setViagemAtiva] = useState(null);
+  const [viagensPorMoto, setViagens]  = useState({});
+  const [viagemAtiva, setViagemAtiva] = useState(null); // { motoId, viagem }
   const wsRef = useRef(null);
 
   useEffect(() => {
     async function carregar() {
       try {
-        const hoje = new Date().toISOString().split('T')[0];
         const [motosData, posicoesData, entregasData, alertasData] = await Promise.all([
           motosApi.listar(),
           motosApi.posicoesLive(),
-          entregasApi.listar({ data: hoje }),
+          entregasApi.listar({ data: new Date().toISOString().split('T')[0] }),
           alertasApi.listar(),
         ]);
         setMotos(motosData);
@@ -85,34 +82,22 @@ export default function AdminMapa() {
         for (const item of posicoesData) {
           if (item.posicao) {
             mapa[item.moto.id] = {
-              lat:        item.posicao.lat,
-              lng:        item.posicao.lng,
-              velocidade: item.posicao.velocidade,
+              lat: item.posicao.lat, lng: item.posicao.lng,
+              velocidade: item.posicao.velocidade, ignicao: item.posicao.ignicao,
             };
           }
         }
         setPosicoes(mapa);
 
-        const trajetosData = {};
-        await Promise.all(
-          motosData.map(async (moto) => {
-            try {
-              const pts = await motosApi.trajeto(moto.id, hoje);
-              if (pts?.length > 1) trajetosData[moto.id] = pts;
-            } catch (_) {}
-          })
-        );
-        setTrajetos(trajetosData);
-
+        // Busca viagens de todas as motos
+        const hoje = new Date().toISOString().split('T')[0];
         const viagensMap = {};
-        await Promise.all(
-          motosData.map(async (moto) => {
-            try {
-              const vs = await motosApi.viagens(moto.id, hoje);
-              if (vs?.length) viagensMap[moto.id] = vs;
-            } catch (_) {}
-          })
-        );
+        await Promise.all(motosData.map(async (moto) => {
+          try {
+            const v = await motosApi.viagens(moto.id, hoje);
+            viagensMap[moto.id] = v;
+          } catch { viagensMap[moto.id] = []; }
+        }));
         setViagens(viagensMap);
       } catch (err) {
         console.error('Erro ao carregar dados:', err);
@@ -129,7 +114,7 @@ export default function AdminMapa() {
         const d = msg.dados;
         setPosicoes(prev => ({
           ...prev,
-          [d.motoId]: { lat: d.lat, lng: d.lng, velocidade: d.velocidade },
+          [d.motoId]: { lat: d.lat, lng: d.lng, velocidade: d.velocidade, ignicao: d.ignicao },
         }));
       }
     });
@@ -139,23 +124,47 @@ export default function AdminMapa() {
   const concluidas    = entregasHoje.filter(e => e.status === 'CONCLUIDA').length;
   const emRota        = entregasHoje.filter(e => e.status === 'EM_ROTA').length;
   const alertasAtivos = listaAlertas.filter(a => !a.lido).length;
-
-  const locaisAtivos = entregasHoje.flatMap(e =>
+  const locaisAtivos  = entregasHoje.flatMap(e =>
     (e.locais || []).map(el => ({ ...el.local, status: el.status }))
   );
 
+  // Linha ativa: viagem selecionada OU entrega em rota
+  const linhasNoMapa = [];
+  if (viagemAtiva) {
+    const moto = motos.find(m => m.id === viagemAtiva.motoId);
+    linhasNoMapa.push({
+      pontos: viagemAtiva.viagem.pontos.map(p => [p.lat, p.lng]),
+      cor: moto?.cor || '#185FA5',
+      motoId: viagemAtiva.motoId,
+    });
+  } else {
+    // Mostra linha só pra motos EM_ROTA (loja → posição atual)
+    motos.forEach(moto => {
+      const pos = posicoes[moto.id];
+      const temEntregaEmRota = entregasHoje.some(e => e.motoId === moto.id && e.status === 'EM_ROTA');
+      if (pos && temEntregaEmRota) {
+        linhasNoMapa.push({
+          pontos: [[LOJA.lat, LOJA.lng], [pos.lat, pos.lng]],
+          cor: moto.cor || '#185FA5',
+          motoId: moto.id,
+          dashed: true,
+        });
+      }
+    });
+  }
+
   if (loading) {
     return (
-      <Layout navItems={NAV}>
+      <Layout navItems={NAV} titulo="Mapa ao vivo">
         <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-          Carregando dados…
+          Carregando dados reais…
         </div>
       </Layout>
     );
   }
 
   return (
-    <Layout navItems={NAV}>
+    <Layout navItems={NAV} titulo="Mapa ao vivo">
       <div className="bg-white border-b border-gray-100 px-5 py-3 flex items-center justify-between flex-shrink-0">
         <div>
           <h1 className="text-base font-semibold text-gray-900">Mapa ao vivo</h1>
@@ -190,36 +199,16 @@ export default function AdminMapa() {
             </Marker>
 
             {motos.map(moto => {
-              const pts = trajetos[moto.id];
-              if (!pts?.length) return null;
-              return (
-                <Polyline key={`traj-${moto.id}`}
-                  positions={pts.map(p => [p.lat, p.lng])}
-                  pathOptions={{ color: moto.cor || '#185FA5', weight: 3, opacity: 0.7 }}
-                />
-              );
-            })}
-
-            {viagemAtiva && (() => {
-              const moto = motos.find(m => m.id === viagemAtiva.motoId);
-              return (
-                <Polyline
-                  positions={viagemAtiva.pontos.map(p => [p.lat, p.lng])}
-                  pathOptions={{ color: moto?.cor || '#185FA5', weight: 5, opacity: 1 }}
-                />
-              );
-            })()}
-
-            {motos.map(moto => {
               const pos = posicoes[moto.id];
               if (!pos) return null;
               return (
-                <Marker key={moto.id} position={[pos.lat, pos.lng]} icon={criarIconeMoto(moto.cor || '#185FA5', moto.apelido)}>
+                <Marker key={moto.id} position={[pos.lat, pos.lng]} icon={criarIconeMoto(moto.cor || '#185FA5', moto.apelido, pos.velocidade)}>
                   <Popup>
                     <strong>{moto.apelido}</strong><br/>
                     Placa: {moto.placa}<br/>
                     Motoqueiro: {moto.motoqueiro?.nome || '—'}<br/>
-                    Velocidade: {pos.velocidade != null ? `${Math.round(pos.velocidade)} km/h` : '—'}
+                    Velocidade: {pos.velocidade ?? '?'} km/h<br/>
+                    Ignição: {pos.ignicao ? '✅ ligada' : '🔴 desligada'}
                   </Popup>
                 </Marker>
               );
@@ -234,8 +223,21 @@ export default function AdminMapa() {
                 </Popup>
               </Marker>
             ))}
+
+            {linhasNoMapa.map((linha, i) => (
+              <Polyline key={i}
+                positions={linha.pontos}
+                pathOptions={{
+                  color: linha.cor,
+                  weight: linha.dashed ? 2 : 3,
+                  dashArray: linha.dashed ? '5,8' : undefined,
+                  opacity: linha.dashed ? 0.5 : 0.8,
+                }}
+              />
+            ))}
           </MapContainer>
 
+          {/* Legenda */}
           <div className="absolute bottom-4 left-4 bg-white rounded-xl shadow-lg border border-gray-100 p-3 text-xs space-y-1.5 z-[400]">
             <div className="font-semibold text-gray-700 mb-2">Legenda</div>
             {motos.map(m => (
@@ -251,13 +253,26 @@ export default function AdminMapa() {
               <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-red-500 inline-block"></span><span className="text-gray-500">Pendente</span></div>
             </div>
           </div>
+
+          {/* Badge de viagem ativa */}
+          {viagemAtiva && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[400] bg-white rounded-xl shadow-lg border border-brand-200 px-4 py-2 flex items-center gap-3 text-xs">
+              <Route size={13} className="text-brand-500" />
+              <span className="text-gray-700 font-medium">
+                Viagem {viagemAtiva.viagem.id} · {viagemAtiva.viagem.km} km
+                {viagemAtiva.viagem.entrega && ` · ${viagemAtiva.viagem.entrega.notaFiscal}`}
+              </span>
+              <button onClick={() => setViagemAtiva(null)} className="text-gray-400 hover:text-gray-600 ml-2">✕</button>
+            </div>
+          )}
         </div>
 
+        {/* Sidebar */}
         <div className="w-[240px] bg-white border-l border-gray-100 flex flex-col flex-shrink-0 overflow-hidden">
           <div className="flex border-b border-gray-100">
-            {['resumo', 'entregas', 'alertas', 'viagens'].map(t => (
+            {['resumo', 'viagens', 'entregas', 'alertas'].map(t => (
               <button key={t} onClick={() => setTabAtiva(t)}
-                className={`flex-1 py-2.5 text-xs font-medium capitalize transition-all border-b-2 ${
+                className={`flex-1 py-2.5 text-[10px] font-medium capitalize transition-all border-b-2 ${
                   tabAtiva === t ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-400 hover:text-gray-600'
                 }`}
               >{t}</button>
@@ -265,6 +280,8 @@ export default function AdminMapa() {
           </div>
 
           <div className="flex-1 overflow-y-auto scrollbar-thin p-4">
+
+            {/* RESUMO */}
             {tabAtiva === 'resumo' && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-2">
@@ -322,6 +339,65 @@ export default function AdminMapa() {
               </div>
             )}
 
+            {/* VIAGENS */}
+            {tabAtiva === 'viagens' && (
+              <div className="space-y-3">
+                {motos.map(moto => {
+                  const viagens = viagensPorMoto[moto.id] || [];
+                  return (
+                    <div key={moto.id}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="w-2 h-2 rounded-full" style={{ background: moto.cor || '#185FA5' }}></span>
+                        <span className="text-xs font-semibold text-gray-700">{moto.apelido}</span>
+                        <span className="text-[10px] text-gray-400 ml-auto">{viagens.length} viagem{viagens.length !== 1 ? 's' : ''}</span>
+                      </div>
+                      {viagens.length === 0 ? (
+                        <div className="text-[10px] text-gray-400 italic pl-4">Sem viagens hoje</div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {viagens.map(v => {
+                            const ativa = viagemAtiva?.motoId === moto.id && viagemAtiva?.viagem.id === v.id;
+                            return (
+                              <button
+                                key={v.id}
+                                onClick={() => setViagemAtiva(ativa ? null : { motoId: moto.id, viagem: v })}
+                                className={`w-full text-left p-2.5 rounded-xl border transition-all ${
+                                  ativa ? 'border-brand-400 bg-brand-50' : 'border-gray-100 hover:border-gray-200'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-[10px] font-semibold text-gray-700">
+                                    {formatarHora(v.inicio)} → {formatarHora(v.fim)}
+                                  </span>
+                                  <span className="text-[10px] font-medium text-brand-600">{v.km} km</span>
+                                </div>
+                                {v.entrega && (
+                                  <div className="flex items-center gap-1 text-[9px] text-gray-400">
+                                    <Route size={9} />
+                                    <span className="font-mono">{v.entrega.notaFiscal}</span>
+                                    <span className={`ml-auto px-1.5 py-0.5 rounded-full ${
+                                      v.entrega.status === 'CONCLUIDA' ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-600'
+                                    }`}>{v.entrega.status === 'CONCLUIDA' ? 'Concluída' : 'Em rota'}</span>
+                                  </div>
+                                )}
+                                {!v.entrega && (
+                                  <div className="text-[9px] text-gray-400">Sem entrega vinculada</div>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {motos.length === 0 && (
+                  <div className="text-center py-8 text-gray-400 text-xs">Nenhuma moto cadastrada</div>
+                )}
+              </div>
+            )}
+
+            {/* ENTREGAS */}
             {tabAtiva === 'entregas' && (
               <div className="space-y-2">
                 {entregasHoje.length === 0 && <div className="text-center py-8 text-gray-400 text-sm">Nenhuma entrega hoje</div>}
@@ -349,6 +425,7 @@ export default function AdminMapa() {
               </div>
             )}
 
+            {/* ALERTAS */}
             {tabAtiva === 'alertas' && (
               <div className="space-y-2">
                 {listaAlertas.length === 0 && (
@@ -372,65 +449,6 @@ export default function AdminMapa() {
                 ))}
               </div>
             )}
-
-            {tabAtiva === 'viagens' && (() => {
-              const todasViagens = motos.flatMap(moto =>
-                (viagensData[moto.id] || []).map(v => ({ ...v, moto }))
-              ).sort((a, b) => new Date(b.inicio) - new Date(a.inicio));
-
-              if (todasViagens.length === 0) {
-                return (
-                  <div className="text-center py-8 text-gray-400 text-sm">
-                    <Route size={32} className="mx-auto mb-2 text-gray-300" />
-                    Nenhuma viagem hoje
-                  </div>
-                );
-              }
-
-              return (
-                <div className="space-y-2">
-                  {todasViagens.map((v) => {
-                    const isAtiva = viagemAtiva?.motoId === v.moto.id && viagemAtiva?.id === v.id;
-                    const dur = Math.round((new Date(v.fim) - new Date(v.inicio)) / 60000);
-                    return (
-                      <button
-                        key={`${v.moto.id}-${v.id}`}
-                        onClick={() => setViagemAtiva(isAtiva ? null : { motoId: v.moto.id, id: v.id, pontos: v.pontos })}
-                        className={`w-full text-left border rounded-xl p-3 transition-all ${
-                          isAtiva ? 'border-brand-400 bg-brand-50' : 'border-gray-100 hover:border-gray-200 bg-white'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: v.moto.cor || '#185FA5' }}></span>
-                          <span className="text-xs font-semibold text-gray-800">{v.moto.apelido}</span>
-                          <span className="ml-auto text-[10px] text-gray-400">#{v.id}</span>
-                        </div>
-                        <div className="text-[10px] text-gray-500 space-y-0.5">
-                          <div className="flex justify-between">
-                            <span>{new Date(v.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-                            <span>→</span>
-                            <span>{new Date(v.fim).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-                          </div>
-                          <div className="flex justify-between text-gray-400">
-                            <span>{dur} min</span>
-                            <span className="font-medium text-gray-600">{v.km} km</span>
-                          </div>
-                        </div>
-                        {v.entrega ? (
-                          <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] text-brand-600 font-medium truncate">
-                            NF {v.entrega.notaFiscal} · {v.entrega.status}
-                          </div>
-                        ) : (
-                          <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] text-gray-400 italic">
-                            Sem entrega vinculada
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })()}
           </div>
         </div>
       </div>

@@ -40,14 +40,11 @@ export const entregas = {
   buscar:   (id)    => req(`/api/entregas/${id}`),
   criar:    (dados) => req('/api/entregas', { method: 'POST', body: JSON.stringify(dados) }),
   iniciar:  (id)    => req(`/api/entregas/${id}/iniciar`, { method: 'PATCH' }),
-  finalizar: (id) =>
-  req(`/api/entregas/${id}/finalizar`, {
-    method: 'PATCH',
-  }),
+  finalizar:(id)    => req(`/api/entregas/${id}/finalizar`, { method: 'PATCH' }),
+  concluir: (id)    => req(`/api/entregas/${id}/concluir`, { method: 'PATCH' }),
+  deletar:  (id)    => req(`/api/entregas/${id}`, { method: 'DELETE' }),
   confirmarLocal: (localEntregaId) =>
-  req(`/api/entregas/parada/${localEntregaId}/confirmar`, {
-    method: 'PATCH',
-  }),
+    req(`/api/entregas/parada/${localEntregaId}/confirmar`, { method: 'PATCH' }),
 };
 
 export const locais = {
@@ -80,7 +77,7 @@ export function criarWebSocket(onMensagem) {
     .replace(/^http/, 'ws');
 
   const token = localStorage.getItem('ap_token');
-  const ws = new WebSocket(`${wsBase}?token=${token || ''}`);
+  const ws = new WebSocket(`${wsBase}/ws?token=${token || ''}`);
 
   ws.onmessage = (event) => {
     try {

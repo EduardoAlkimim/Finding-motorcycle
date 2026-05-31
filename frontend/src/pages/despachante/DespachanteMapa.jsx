@@ -37,7 +37,12 @@ const criarIconeLocal = (status) => L.divIcon({
   className: '', iconAnchor: [7, 7],
 });
 
-function MapaConteudo({ motos, posicoes, locaisAtivos, viagemAtiva }) {
+function formatarHora(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function MapaConteudo({ motos, posicoes, locaisAtivos, linhas }) {
   const map = useMap();
   useEffect(() => { map.invalidateSize(); }, [map]);
 
@@ -56,8 +61,7 @@ function MapaConteudo({ motos, posicoes, locaisAtivos, viagemAtiva }) {
               <strong>{moto.apelido}</strong><br />
               Placa: {moto.placa}<br />
               Motoqueiro: {moto.motoqueiro?.nome || '—'}<br />
-              Velocidade: {pos.velocidade ?? '?'} km/h<br />
-              Ignição: {pos.ignicao ? '✅ ligada' : '🔴 desligada'}
+              Velocidade: {pos.velocidade ?? '?'} km/h
             </Popup>
           </Marker>
         );
@@ -73,26 +77,17 @@ function MapaConteudo({ motos, posicoes, locaisAtivos, viagemAtiva }) {
         </Marker>
       ))}
 
-      {motos.map(moto => {
-        const pos = posicoes[moto.id];
-        if (!pos) return null;
-        return (
-          <Polyline key={`line-${moto.id}`}
-            positions={[[LOJA.lat, LOJA.lng], [pos.lat, pos.lng]]}
-            pathOptions={{ color: moto.cor || '#185FA5', weight: 2, dashArray: '5,8', opacity: 0.5 }}
-          />
-        );
-      })}
-
-      {viagemAtiva && (() => {
-        const moto = motos.find(m => m.id === viagemAtiva.motoId);
-        return (
-          <Polyline
-            positions={viagemAtiva.pontos.map(p => [p.lat, p.lng])}
-            pathOptions={{ color: moto?.cor || '#185FA5', weight: 5, opacity: 1 }}
-          />
-        );
-      })()}
+      {linhas.map((linha, i) => (
+        <Polyline key={i}
+          positions={linha.pontos}
+          pathOptions={{
+            color: linha.cor,
+            weight: linha.dashed ? 2 : 3,
+            dashArray: linha.dashed ? '5,8' : undefined,
+            opacity: linha.dashed ? 0.5 : 0.8,
+          }}
+        />
+      ))}
     </>
   );
 }
@@ -102,10 +97,9 @@ export default function DespachanteMapa() {
   const [posicoes, setPosicoes]       = useState({});
   const [entregasHoje, setEntregas]   = useState([]);
   const [loading, setLoading]         = useState(true);
-  const [mapaKey]                     = useState(() => Date.now());
-  const [viagensData, setViagens]     = useState({});
+  const [viagensPorMoto, setViagens]  = useState({});
   const [viagemAtiva, setViagemAtiva] = useState(null);
-  const [tabAtiva, setTabAtiva]       = useState('entregas');
+  const [mapaKey]                     = useState(() => Date.now());
   const wsRef = useRef(null);
 
   const carregar = useCallback(async () => {
@@ -131,14 +125,12 @@ export default function DespachanteMapa() {
       setPosicoes(mapa);
 
       const viagensMap = {};
-      await Promise.all(
-        motosData.map(async (moto) => {
-          try {
-            const vs = await motosApi.viagens(moto.id, hoje);
-            if (vs?.length) viagensMap[moto.id] = vs;
-          } catch (_) {}
-        })
-      );
+      await Promise.all(motosData.map(async (moto) => {
+        try {
+          const v = await motosApi.viagens(moto.id, hoje);
+          viagensMap[moto.id] = v;
+        } catch { viagensMap[moto.id] = []; }
+      }));
       setViagens(viagensMap);
     } catch (err) {
       console.error('Erro ao carregar mapa:', err);
@@ -149,7 +141,6 @@ export default function DespachanteMapa() {
 
   useEffect(() => {
     carregar();
-
     wsRef.current = criarWebSocket((msg) => {
       if (msg.evento === 'posicao_moto') {
         const d = msg.dados;
@@ -159,7 +150,6 @@ export default function DespachanteMapa() {
         }));
       }
     });
-
     return () => { if (wsRef.current) wsRef.current.close(); };
   }, [carregar]);
 
@@ -167,6 +157,28 @@ export default function DespachanteMapa() {
   const locaisAtivos   = entregasHoje.flatMap(e =>
     (e.locais || []).map(el => ({ ...el.local, status: el.status }))
   );
+
+  // Linhas no mapa
+  const linhas = [];
+  if (viagemAtiva) {
+    const moto = motos.find(m => m.id === viagemAtiva.motoId);
+    linhas.push({
+      pontos: viagemAtiva.viagem.pontos.map(p => [p.lat, p.lng]),
+      cor: moto?.cor || '#185FA5',
+    });
+  } else {
+    motos.forEach(moto => {
+      const pos = posicoes[moto.id];
+      const temEmRota = entregasHoje.some(e => e.motoId === moto.id && e.status === 'EM_ROTA');
+      if (pos && temEmRota) {
+        linhas.push({
+          pontos: [[LOJA.lat, LOJA.lng], [pos.lat, pos.lng]],
+          cor: moto.cor || '#185FA5',
+          dashed: true,
+        });
+      }
+    });
+  }
 
   return (
     <Layout navItems={NAV}>
@@ -194,7 +206,7 @@ export default function DespachanteMapa() {
                 attribution='&copy; <a href="https://carto.com/">CARTO</a>'
                 maxZoom={19}
               />
-              <MapaConteudo motos={motos} posicoes={posicoes} locaisAtivos={locaisAtivos} viagemAtiva={viagemAtiva} />
+              <MapaConteudo motos={motos} posicoes={posicoes} locaisAtivos={locaisAtivos} linhas={linhas} />
             </MapContainer>
           )}
 
@@ -207,7 +219,6 @@ export default function DespachanteMapa() {
                   <span className="text-gray-600">{m.apelido} · {m.motoqueiro?.nome?.split(' ')[0] || '—'}</span>
                 </div>
               ))}
-              {motos.length === 0 && <div className="text-gray-400 italic">Nenhuma moto cadastrada</div>}
               <div className="border-t border-gray-100 pt-1.5 mt-1.5 space-y-1">
                 <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-green-600 inline-block"></span><span className="text-gray-500">Entregue</span></div>
                 <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-blue-600 inline-block"></span><span className="text-gray-500">Chegou</span></div>
@@ -215,112 +226,82 @@ export default function DespachanteMapa() {
               </div>
             </div>
           )}
+
+          {viagemAtiva && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[400] bg-white rounded-xl shadow-lg border border-brand-200 px-4 py-2 flex items-center gap-3 text-xs">
+              <Route size={13} className="text-brand-500" />
+              <span className="text-gray-700 font-medium">
+                Viagem {viagemAtiva.viagem.id} · {viagemAtiva.viagem.km} km
+                {viagemAtiva.viagem.entrega && ` · ${viagemAtiva.viagem.entrega.notaFiscal}`}
+              </span>
+              <button onClick={() => setViagemAtiva(null)} className="text-gray-400 hover:text-gray-600 ml-2">✕</button>
+            </div>
+          )}
         </div>
 
+        {/* Sidebar */}
         <div className="w-[220px] bg-white border-l border-gray-100 flex flex-col flex-shrink-0 overflow-hidden">
           <div className="flex border-b border-gray-100">
-            {['entregas', 'viagens'].map(t => (
-              <button key={t} onClick={() => setTabAtiva(t)}
-                className={`flex-1 py-2.5 text-xs font-medium capitalize transition-all border-b-2 ${
-                  tabAtiva === t ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-400 hover:text-gray-600'
-                }`}
+            {['em rota', 'viagens'].map(t => (
+              <button key={t} onClick={() => { /* tab state */ }}
+                className="flex-1 py-2.5 text-[10px] font-medium capitalize border-b-2 border-transparent text-gray-400 hover:text-gray-600 transition-all"
               >{t}</button>
             ))}
           </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+
+          {/* Viagens por moto */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-4">
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 size={16} className="animate-spin text-gray-300" />
               </div>
-            ) : tabAtiva === 'entregas' ? (
-              entregasEmRota.length === 0 ? (
-                <div className="text-center py-8 text-gray-400 text-xs">
-                  <Navigation2 size={24} className="mx-auto mb-2 text-gray-300" />
-                  Nenhuma entrega em rota
-                </div>
-              ) : entregasEmRota.map(e => {
-                const moto = motos.find(m => m.id === e.motoId);
+            ) : motos.length === 0 ? (
+              <div className="text-center py-8 text-gray-400 text-xs">Nenhuma moto cadastrada</div>
+            ) : (
+              motos.map(moto => {
+                const viagens = viagensPorMoto[moto.id] || [];
                 return (
-                  <div key={e.id} className="border border-gray-100 rounded-xl p-3">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-2 h-2 rounded-full" style={{ background: moto?.cor || '#185FA5' }}></span>
-                      <span className="text-xs font-semibold text-gray-800 font-mono">{e.notaFiscal}</span>
+                  <div key={moto.id}>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className="w-2 h-2 rounded-full" style={{ background: moto.cor || '#185FA5' }}></span>
+                      <span className="text-xs font-semibold text-gray-700">{moto.apelido}</span>
+                      <span className="text-[9px] text-gray-400 ml-auto">{viagens.length} viagem{viagens.length !== 1 ? 's' : ''}</span>
                     </div>
-                    <div className="text-[10px] text-gray-400 mb-2">
-                      {moto?.apelido || '—'} · {moto?.motoqueiro?.nome?.split(' ')[0] || '—'}
-                    </div>
-                    <div className="space-y-1">
-                      {(e.locais || []).map((el, i) => (
-                        <div key={el.id || i} className="flex items-center gap-2">
-                          <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold flex-shrink-0 ${
-                            el.status === 'CONFIRMADO' ? 'bg-green-500 text-white' :
-                            el.status === 'CHEGOU'     ? 'bg-blue-500 text-white'  :
-                            'bg-gray-200 text-gray-500'
-                          }`}>{i + 1}</div>
-                          <span className="text-[10px] text-gray-600 truncate">{el.local?.nome || '—'}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="text-[10px] text-gray-400 mt-2 pt-2 border-t border-gray-50">
-                      {(e.locais || []).filter(l => l.status === 'CONFIRMADO').length}/{(e.locais || []).length} confirmadas
-                    </div>
+                    {viagens.length === 0 ? (
+                      <div className="text-[10px] text-gray-400 italic pl-3 mb-1">Sem viagens hoje</div>
+                    ) : (
+                      <div className="space-y-1">
+                        {viagens.map(v => {
+                          const ativa = viagemAtiva?.motoId === moto.id && viagemAtiva?.viagem.id === v.id;
+                          return (
+                            <button
+                              key={v.id}
+                              onClick={() => setViagemAtiva(ativa ? null : { motoId: moto.id, viagem: v })}
+                              className={`w-full text-left p-2 rounded-xl border transition-all ${
+                                ativa ? 'border-brand-400 bg-brand-50' : 'border-gray-100 hover:border-gray-200'
+                              }`}
+                            >
+                              <div className="flex justify-between text-[10px] font-medium text-gray-700">
+                                <span>{formatarHora(v.inicio)} → {formatarHora(v.fim)}</span>
+                                <span className="text-brand-600">{v.km}km</span>
+                              </div>
+                              {v.entrega ? (
+                                <div className="flex items-center gap-1 text-[9px] text-gray-400 mt-0.5">
+                                  <Route size={8} />
+                                  <span className="font-mono">{v.entrega.notaFiscal}</span>
+                                </div>
+                              ) : (
+                                <div className="text-[9px] text-gray-400 mt-0.5">Sem entrega</div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })
-            ) : (() => {
-              const todasViagens = motos.flatMap(moto =>
-                (viagensData[moto.id] || []).map(v => ({ ...v, moto }))
-              ).sort((a, b) => new Date(b.inicio) - new Date(a.inicio));
-
-              if (todasViagens.length === 0) {
-                return (
-                  <div className="text-center py-8 text-gray-400 text-xs">
-                    <Route size={24} className="mx-auto mb-2 text-gray-300" />
-                    Nenhuma viagem hoje
-                  </div>
-                );
-              }
-
-              return todasViagens.map(v => {
-                const isAtiva = viagemAtiva?.motoId === v.moto.id && viagemAtiva?.id === v.id;
-                const dur = Math.round((new Date(v.fim) - new Date(v.inicio)) / 60000);
-                return (
-                  <button
-                    key={`${v.moto.id}-${v.id}`}
-                    onClick={() => setViagemAtiva(isAtiva ? null : { motoId: v.moto.id, id: v.id, pontos: v.pontos })}
-                    className={`w-full text-left border rounded-xl p-3 transition-all ${
-                      isAtiva ? 'border-brand-400 bg-brand-50' : 'border-gray-100 hover:border-gray-200 bg-white'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: v.moto.cor || '#185FA5' }}></span>
-                      <span className="text-xs font-semibold text-gray-800">{v.moto.apelido}</span>
-                      <span className="ml-auto text-[10px] text-gray-400">#{v.id}</span>
-                    </div>
-                    <div className="text-[10px] text-gray-500 space-y-0.5">
-                      <div className="flex justify-between">
-                        <span>{new Date(v.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-                        <span>→</span>
-                        <span>{new Date(v.fim).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-                      </div>
-                      <div className="flex justify-between text-gray-400">
-                        <span>{dur} min</span>
-                        <span className="font-medium text-gray-600">{v.km} km</span>
-                      </div>
-                    </div>
-                    {v.entrega ? (
-                      <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] text-brand-600 font-medium truncate">
-                        NF {v.entrega.notaFiscal} · {v.entrega.status}
-                      </div>
-                    ) : (
-                      <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] text-gray-400 italic">
-                        Sem entrega vinculada
-                      </div>
-                    )}
-                  </button>
-                );
-              });
-            })()}
+            )}
           </div>
         </div>
       </div>

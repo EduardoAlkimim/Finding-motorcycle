@@ -166,6 +166,20 @@ const confirmarParada = async (req, res) => {
       }
     }
 
+    // DELETE /api/entregas/:id
+const deletar = async (req, res) => {
+  try {
+    const entrega = await prisma.entrega.findUnique({ where: { id: req.params.id } })
+    if (!entrega) return res.status(404).json({ erro: 'Entrega não encontrada' })
+    if (entrega.status === 'EM_ROTA') return res.status(400).json({ erro: 'Não é possível deletar entrega em andamento' })
+    await prisma.entrega.delete({ where: { id: req.params.id } })
+    return res.json({ mensagem: 'Entrega removida' })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ erro: 'Erro ao deletar entrega' })
+  }
+}
+
     const atualizado = await prisma.entregaLocal.update({
       where: { id: entregaLocalId },
       data: {
@@ -233,5 +247,4 @@ function calcularKmTrajeto(posicoes) {
   }
   return total / 1000
 }
-
-module.exports = { listar, buscarUm, criar, iniciar, confirmarParada, finalizar }
+module.exports = { listar, buscarUm, criar, iniciar, confirmarParada, finalizar, deletar }
