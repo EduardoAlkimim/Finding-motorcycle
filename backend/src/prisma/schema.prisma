@@ -84,6 +84,8 @@ enum StatusEntrega {
   EM_ROTA
   CONCLUIDA
   CANCELADA
+  FINALIZADA
+
 }
 
 model Entrega {
@@ -95,6 +97,8 @@ model Entrega {
   observacoes  String?
   saidaEm     DateTime?
   chegadaEm   DateTime?
+  finalizadoEm DateTime?
+  kmRetorno    Float?
   criadoEm    DateTime      @default(now())
   atualizadoEm DateTime     @updatedAt
 
