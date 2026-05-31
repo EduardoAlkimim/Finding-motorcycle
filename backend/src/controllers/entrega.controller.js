@@ -270,6 +270,57 @@ const confirmarParada = async (req, res) => {
   }
 }
 
+// PATCH /api/entregas/:id/editar — edita entrega PENDENTE (moto, NF, destinos)
+const editar = async (req, res) => {
+  try {
+    const entrega = await prisma.entrega.findUnique({ where: { id: req.params.id } })
+    if (!entrega) return res.status(404).json({ erro: 'Entrega não encontrada' })
+    if (entrega.status !== 'PENDENTE') {
+      return res.status(400).json({ erro: 'Apenas entregas PENDENTE podem ser editadas' })
+    }
+
+    const { notaFiscal, motoId, locaisIds } = req.body
+
+    if (!notaFiscal?.trim()) return res.status(400).json({ erro: 'Nota fiscal obrigatória' })
+    if (!motoId)             return res.status(400).json({ erro: 'Moto obrigatória' })
+    if (!locaisIds?.length)  return res.status(400).json({ erro: 'Selecione ao menos um destino' })
+
+    // Recalcula km previsto com os novos locais
+    const locais = await prisma.local.findMany({ where: { id: { in: locaisIds } } })
+    const kmPrevisto = await calcularKmPrevisto(locais)
+    const ultimoLocal = locais[locais.length - 1]
+    const kmRetornoPrevisto = ultimoLocal
+      ? await calcularKmPrevisto([ultimoLocal], true)
+      : 0
+
+    // Remove paradas antigas e cria novas
+    await prisma.entregaLocal.deleteMany({ where: { entregaId: req.params.id } })
+
+    const atualizada = await prisma.entrega.update({
+      where: { id: req.params.id },
+      data: {
+        notaFiscal: notaFiscal.trim(),
+        motoId,
+        kmPrevisto,
+        kmRetornoPrevisto,
+        locais: {
+          create: locaisIds.map((localId, index) => ({
+            localId,
+            ordem: index + 1,
+          })),
+        },
+      },
+      include: INCLUDE_COMPLETO,
+    })
+
+    emitirParaTodos('entrega_editada', atualizada)
+    return res.json(atualizada)
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ erro: 'Erro ao editar entrega' })
+  }
+}
+
 // DELETE /api/entregas/:id
 const deletar = async (req, res) => {
   try {
@@ -311,4 +362,4 @@ function calcularKmTrajeto(posicoes) {
   return parseFloat((total / 1000).toFixed(2))
 }
 
-module.exports = { listar, buscarUm, criar, iniciar, concluir, iniciarRetorno, finalizar, confirmarParada, deletar }
+module.exports = { listar, buscarUm, criar, iniciar, concluir, iniciarRetorno, finalizar, confirmarParada, editar, deletar }

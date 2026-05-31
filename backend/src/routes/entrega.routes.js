@@ -17,6 +17,7 @@ router.patch('/:id/finalizar',autorizar('ADMIN', 'DESPACHANTE'), c.finalizar)
 router.patch('/parada/:entregaLocalId/confirmar', c.confirmarParada)
 router.patch('/:id/locais/:localEntregaId/confirmar', c.confirmarParada)
 
+router.patch('/:id/editar',   autorizar('ADMIN', 'DESPACHANTE'), c.editar)
 router.delete('/:id', autorizar('ADMIN', 'DESPACHANTE'), c.deletar)
 
 module.exports = router

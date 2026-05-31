@@ -45,6 +45,7 @@ export const entregas = {
   concluir:       (id)    => req(`/api/entregas/${id}/concluir`, { method: 'PATCH' }),
   iniciarRetorno: (id)    => req(`/api/entregas/${id}/retorno`,  { method: 'PATCH' }),
   finalizar:      (id)    => req(`/api/entregas/${id}/finalizar`,{ method: 'PATCH' }),
+  editar:         (id, dados) => req(`/api/entregas/${id}/editar`, { method: 'PATCH', body: JSON.stringify(dados) }),
   deletar:        (id)    => req(`/api/entregas/${id}`,          { method: 'DELETE' }),
   confirmarLocal: (localEntregaId) =>
     req(`/api/entregas/parada/${localEntregaId}/confirmar`, { method: 'PATCH' }),
