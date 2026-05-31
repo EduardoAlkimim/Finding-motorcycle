@@ -4,7 +4,7 @@ import L from 'leaflet';
 import Layout from '../../components/shared/Layout';
 import {
   ClipboardList, Map, Bell, Plus, X, Send, CheckCircle2, Loader2,
-  MapPin, Trash2, AlertCircle, ChevronRight, Play, Flag, Home, RotateCcw, Pencil,
+  MapPin, Trash2, AlertCircle, ChevronRight, Play, Flag, Home, RotateCcw,
 } from 'lucide-react';
 import { motos as motosApi, locais as locaisApi, entregas as entregasApi } from '../../services/api';
 
@@ -67,165 +67,15 @@ function km(val) {
   return `${parseFloat(val).toFixed(1)} km`;
 }
 
-// ─── Modal de edição da entrega (apenas PENDENTE) ───────────────────────────
-function ModalEditar({ entrega, motos, locais, onClose, onSalvar, salvando }) {
-  const [nf, setNf]               = useState(entrega.notaFiscal);
-  const [motoSel, setMotoSel]     = useState(entrega.motoId || '');
-  const [locaisSel, setLocaisSel] = useState(
-    (entrega.locais || []).map(el => el.local).filter(Boolean)
-  );
-  const [kmEstimado, setKmEstimado]     = useState(null);
-  const [calculandoKm, setCalculandoKm] = useState(false);
-  const kmTimerRef = useRef(null);
-
-  useEffect(() => {
-    if (locaisSel.length === 0) { setKmEstimado(null); return; }
-    if (kmTimerRef.current) clearTimeout(kmTimerRef.current);
-    kmTimerRef.current = setTimeout(async () => {
-      setCalculandoKm(true);
-      const km = await calcularKmOSRM(locaisSel);
-      setKmEstimado(km);
-      setCalculandoKm(false);
-    }, 500);
-    return () => clearTimeout(kmTimerRef.current);
-  }, [locaisSel]);
-
-  const toggleLocal = (local) => {
-    setLocaisSel(prev =>
-      prev.find(l => l.id === local.id)
-        ? prev.filter(l => l.id !== local.id)
-        : [...prev, local]
-    );
-  };
-
-  const canSave = nf.trim() && motoSel && locaisSel.length > 0;
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
-          <div>
-            <div className="text-sm font-semibold text-gray-900">Editar entrega</div>
-            <div className="text-[11px] text-gray-400 font-mono mt-0.5">{entrega.notaFiscal}</div>
-          </div>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-all">
-            <X size={15} />
-          </button>
-        </div>
-
-        {/* Corpo scrollável */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-5">
-          {/* NF */}
-          <div>
-            <label className="block text-xs text-gray-500 mb-1.5">Nota fiscal</label>
-            <input
-              value={nf}
-              onChange={e => setNf(e.target.value)}
-              placeholder="NF-2024-006"
-              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 focus:border-brand-400 font-mono"
-            />
-          </div>
-
-          {/* Moto */}
-          <div>
-            <label className="block text-xs text-gray-500 mb-1.5">Motoqueiro</label>
-            <div className="space-y-2">
-              {motos.map(moto => (
-                <button
-                  key={moto.id}
-                  onClick={() => setMotoSel(moto.id)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${
-                    motoSel === moto.id ? 'border-brand-400 bg-brand-50' : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: moto.cor || '#185FA5' }}></span>
-                  <div className="text-left">
-                    <div className="text-xs font-medium text-gray-800">{moto.apelido}</div>
-                    <div className="text-[10px] text-gray-400">{moto.motoqueiro?.nome || '—'} · {moto.placa}</div>
-                  </div>
-                  {motoSel === moto.id && <CheckCircle2 size={14} className="ml-auto text-brand-500" />}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Destinos */}
-          <div>
-            <label className="block text-xs text-gray-500 mb-1.5">
-              Destinos <span className="text-gray-400">({locaisSel.length} selecionados)</span>
-            </label>
-            <div className="space-y-1.5 max-h-48 overflow-y-auto scrollbar-thin">
-              {locais.map((local, i) => {
-                const idx = locaisSel.findIndex(l => l.id === local.id);
-                const sel = idx !== -1;
-                return (
-                  <button
-                    key={local.id}
-                    onClick={() => toggleLocal(local)}
-                    className={`w-full flex items-center gap-2.5 p-2.5 rounded-xl border transition-all text-left ${
-                      sel ? 'border-brand-300 bg-brand-50' : 'border-gray-100 hover:border-gray-200 bg-gray-50'
-                    }`}
-                  >
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-semibold flex-shrink-0 transition-all ${
-                      sel ? 'bg-brand-500 text-white' : 'bg-gray-200 text-gray-500'
-                    }`}>{sel ? idx + 1 : i + 1}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-gray-800 truncate">{local.nome}</div>
-                      <div className="text-[10px] text-gray-400 truncate">{local.endereco}</div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* KM estimado */}
-          {locaisSel.length > 0 && (
-            <div className="bg-gray-50 rounded-xl p-3">
-              <div className="text-[10px] text-gray-400 mb-1">KM estimado (loja → destinos → loja)</div>
-              {calculandoKm ? (
-                <div className="flex items-center gap-2 text-gray-400">
-                  <Loader2 size={13} className="animate-spin" />
-                  <span className="text-sm">Calculando rota...</span>
-                </div>
-              ) : kmEstimado !== null ? (
-                <div className="text-lg font-semibold text-gray-800">~{kmEstimado} km</div>
-              ) : (
-                <div className="text-sm text-gray-400 italic">OSRM indisponível</div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Footer fixo */}
-        <div className="px-5 py-4 border-t border-gray-100 flex-shrink-0">
-          <button
-            onClick={() => onSalvar({ notaFiscal: nf.trim(), motoId: motoSel, locaisIds: locaisSel.map(l => l.id) })}
-            disabled={!canSave || salvando}
-            className="w-full flex items-center justify-center gap-2 bg-brand-500 disabled:opacity-40 hover:bg-brand-600 text-white py-2.5 rounded-xl text-sm font-medium transition-all"
-          >
-            {salvando ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-            {salvando ? 'Salvando…' : 'Salvar alterações'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Modal de detalhes da entrega ───────────────────────────────────────────
-function ModalEntrega({ entrega, onClose, onAcao, atualizando }) {
+function ModalEntrega({ entrega, onClose, onAcao, onDeletar, atualizando }) {
   const cfg = STATUS_CONFIG[entrega.status] || STATUS_CONFIG.PENDENTE;
   const moto = entrega.moto;
   const confirmadas = (entrega.locais || []).filter(l => l.status === 'CONFIRMADO').length;
   const total = (entrega.locais || []).length;
 
   const acoes = [];
-  if (entrega.status === 'PENDENTE')      acoes.push({ label: 'Iniciar rota',       acao: 'iniciar',        icon: Play,   cor: 'bg-blue-500 hover:bg-blue-600' });
-  if (entrega.status === 'EM_ROTA')       acoes.push({ label: 'Concluir entregas',  acao: 'concluir',       icon: Flag,   cor: 'bg-yellow-500 hover:bg-yellow-600' });
-  if (entrega.status === 'CONCLUIDA')     acoes.push({ label: 'Iniciar retorno',    acao: 'retorno',        icon: Home,   cor: 'bg-orange-500 hover:bg-orange-600' });
-  if (entrega.status === 'VOLTANDO_LOJA') acoes.push({ label: 'Confirmar chegada',  acao: 'finalizar',      icon: CheckCircle2, cor: 'bg-green-500 hover:bg-green-600' });
+  if (entrega.status === 'PENDENTE') acoes.push({ label: 'Iniciar rota', acao: 'iniciar', icon: Play, cor: 'bg-blue-500 hover:bg-blue-600' });
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -325,7 +175,7 @@ function ModalEntrega({ entrega, onClose, onAcao, atualizando }) {
         </div>
 
         {/* Ações */}
-        {acoes.length > 0 && (
+        {(acoes.length > 0 || ['PENDENTE','CONCLUIDA','CANCELADA','FINALIZADA'].includes(entrega.status)) && (
           <div className="p-5 space-y-2">
             {acoes.map(({ label, acao, icon: Icon, cor }) => (
               <button
@@ -338,6 +188,14 @@ function ModalEntrega({ entrega, onClose, onAcao, atualizando }) {
                 {label}
               </button>
             ))}
+            {!['EM_ROTA','VOLTANDO_LOJA'].includes(entrega.status) && (
+              <button
+                onClick={() => onDeletar(entrega.id)}
+                className="w-full flex items-center justify-center gap-2 border border-red-200 text-red-500 hover:bg-red-50 py-2.5 rounded-xl text-sm font-medium transition-all"
+              >
+                <Trash2 size={14} /> Deletar entrega
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -358,8 +216,6 @@ export default function Despachante() {
   const [atualizando, setAtualizando] = useState(null);
   const [confirmarDeletar, setConfirmarDeletar] = useState(null);
   const [entregaAberta, setEntregaAberta]       = useState(null);
-  const [entregaEditando, setEntregaEditando]   = useState(null);
-  const [salvando, setSalvando]                 = useState(false);
 
   const [locaisSel, setLocaisSel]       = useState([]);
   const [motoSel, setMotoSel]           = useState('');
@@ -449,20 +305,6 @@ export default function Despachante() {
       alert('Erro: ' + err.message);
     } finally {
       setAtualizando(null);
-    }
-  };
-
-  const editarEntrega = async (dados) => {
-    if (!entregaEditando) return;
-    setSalvando(true);
-    try {
-      await entregasApi.editar(entregaEditando.id, dados);
-      setEntregaEditando(null);
-      await carregar();
-    } catch (err) {
-      alert('Erro ao editar: ' + err.message);
-    } finally {
-      setSalvando(false);
     }
   };
 
@@ -563,15 +405,6 @@ export default function Despachante() {
                           )}
                         </div>
                         <div className="flex items-center gap-1" onClick={ev => ev.stopPropagation()}>
-                          {e.status === 'PENDENTE' && (
-                            <button
-                              onClick={() => setEntregaEditando(e)}
-                              className="p-1.5 text-gray-300 hover:text-brand-500 hover:bg-brand-50 rounded-lg transition-all"
-                              title="Editar entrega"
-                            >
-                              <Pencil size={13} />
-                            </button>
-                          )}
                           {podeDeletar && (
                             <button
                               onClick={() => setConfirmarDeletar(e.id)}
@@ -769,24 +602,13 @@ export default function Despachante() {
         )}
       </div>
 
-      {/* Modal editar entrega */}
-      {entregaEditando && (
-        <ModalEditar
-          entrega={entregaEditando}
-          motos={motos}
-          locais={locais}
-          onClose={() => setEntregaEditando(null)}
-          onSalvar={editarEntrega}
-          salvando={salvando}
-        />
-      )}
-
       {/* Modal detalhes da entrega */}
       {entregaAberta && (
         <ModalEntrega
           entrega={entregaAberta}
           onClose={() => setEntregaAberta(null)}
           onAcao={executarAcao}
+          onDeletar={(id) => { setEntregaAberta(null); setConfirmarDeletar(id); }}
           atualizando={atualizando}
         />
       )}

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import Layout from '../../components/shared/Layout';
-import { Map, BarChart3, MapPin, Bell, AlertTriangle, CheckCircle2, Clock, Route, AlertCircle } from 'lucide-react';
+import { Map, BarChart3, MapPin, Bell, AlertTriangle, CheckCircle2, Clock, Route, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { motos as motosApi, entregas as entregasApi, alertas as alertasApi, criarWebSocket } from '../../services/api';
 
 const LOJA = {
@@ -121,6 +121,7 @@ export default function AdminMapa() {
   const [naoAutPorMoto, setNaoAut]          = useState({});
   const [viagemAtiva, setViagemAtiva]       = useState(null); // { motoId, viagem, autorizada }
   const [posStatus, setPosStatus]           = useState({}); // { [motoId]: temEntregaAtiva }
+  const [mostrarHistoricoFora, setMostrarHistoricoFora] = useState(false);
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -241,6 +242,16 @@ export default function AdminMapa() {
               <AlertCircle size={12} /> {kmNaoAutTotal.toFixed(1)}km n/aut.
             </div>
           )}
+          <button
+            onClick={() => setMostrarHistoricoFora(v => !v)}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full transition-all ${
+              mostrarHistoricoFora ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}
+            title="Histórico fora de rota"
+          >
+            {mostrarHistoricoFora ? <Eye size={12} /> : <EyeOff size={12} />}
+            Fora de rota
+          </button>
         </div>
       </div>
 
@@ -250,7 +261,7 @@ export default function AdminMapa() {
           <MapContainer center={[LOJA.lat, LOJA.lng]} zoom={13} style={{ width: '100%', height: '100%' }} zoomControl={true}>
             <MapaControle />
             <TileLayer
-              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
               attribution='&copy; <a href="https://carto.com/">CARTO</a>'
               maxZoom={19}
             />
@@ -282,8 +293,8 @@ export default function AdminMapa() {
               });
             })}
 
-            {/* Trajetos NÃO autorizados — vermelho */}
-            {motos.map(moto => {
+            {/* Trajetos NÃO autorizados — vermelho, só com toggle */}
+            {mostrarHistoricoFora && motos.map(moto => {
               const viagens = naoAutPorMoto[moto.id] || [];
               return viagens.map((v, i) => {
                 const isAtiva = viagemAtiva?.motoId === moto.id && viagemAtiva?.viagem?.id === v.id && !viagemAtiva?.autorizada;
