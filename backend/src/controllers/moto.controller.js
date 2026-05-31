@@ -4,14 +4,13 @@ const { z } = require('zod')
 const prisma = new PrismaClient()
 
 const motoSchema = z.object({
-  placa:       z.string().min(7, 'Placa inválida'),
-  apelido:     z.string().min(1),
-  cor:         z.string().optional(),
-  traccarId:   z.number().optional(),
+  placa:        z.string().min(7, 'Placa inválida'),
+  apelido:      z.string().min(1),
+  cor:          z.string().optional(),
+  traccarId:    z.number().optional(),
   motoqueiroId: z.string().uuid().optional(),
 })
 
-// GET /api/motos
 const listar = async (req, res) => {
   try {
     const motos = await prisma.moto.findMany({
@@ -25,7 +24,6 @@ const listar = async (req, res) => {
   }
 }
 
-// POST /api/motos
 const criar = async (req, res) => {
   try {
     const dados = motoSchema.parse(req.body)
@@ -41,7 +39,6 @@ const criar = async (req, res) => {
   }
 }
 
-// PUT /api/motos/:id
 const atualizar = async (req, res) => {
   try {
     const moto = await prisma.moto.update({
@@ -55,7 +52,6 @@ const atualizar = async (req, res) => {
   }
 }
 
-// GET /api/motos/:id/posicao — última posição conhecida
 const ultimaPosicao = async (req, res) => {
   try {
     const posicao = await prisma.posicao.findFirst({
@@ -68,13 +64,11 @@ const ultimaPosicao = async (req, res) => {
   }
 }
 
-// GET /api/motos/:id/trajeto?data=2024-01-15 — trajeto do dia
 const trajeto = async (req, res) => {
   try {
-    const data = req.query.data || new Date().toISOString().split('T')[0]
+    const data   = req.query.data || new Date().toISOString().split('T')[0]
     const inicio = new Date(`${data}T00:00:00`)
     const fim    = new Date(`${data}T23:59:59`)
-
     const posicoes = await prisma.posicao.findMany({
       where: { motoId: req.params.id, registradoEm: { gte: inicio, lte: fim } },
       orderBy: { registradoEm: 'asc' },
@@ -86,11 +80,9 @@ const trajeto = async (req, res) => {
   }
 }
 
-// GET /api/motos/posicoes-live — última posição de todas as motos
 const posicoesLive = async (req, res) => {
   try {
     const motos = await prisma.moto.findMany({ where: { ativo: true } })
-
     const resultado = await Promise.all(
       motos.map(async (moto) => {
         const pos = await prisma.posicao.findFirst({
@@ -107,6 +99,7 @@ const posicoesLive = async (req, res) => {
 }
 
 // GET /api/motos/:id/viagens?data=2024-01-15
+// Retorna viagens COM entrega vinculada
 const viagens = async (req, res) => {
   try {
     const data   = req.query.data || new Date().toISOString().split('T')[0]
@@ -121,50 +114,37 @@ const viagens = async (req, res) => {
 
     if (posicoes.length === 0) return res.json([])
 
-    const PAUSA_MS = 5 * 60 * 1000 // 5 minutos
-    const grupos = []
-    let grupo = [posicoes[0]]
+    const PAUSA_MS = 5 * 60 * 1000
+    const grupos = segmentarViagens(posicoes, PAUSA_MS)
 
-    for (let i = 1; i < posicoes.length; i++) {
-      const diff = new Date(posicoes[i].registradoEm) - new Date(posicoes[i - 1].registradoEm)
-      if (diff > PAUSA_MS) {
-        grupos.push(grupo)
-        grupo = []
-      }
-      grupo.push(posicoes[i])
-    }
-    grupos.push(grupo)
-
-    // Busca entregas do dia pra vincular
     const entregas = await prisma.entrega.findMany({
-      where:   { motoId: req.params.id, saidaEm: { gte: inicio, lte: fim } },
-      select:  { id: true, notaFiscal: true, status: true, saidaEm: true, chegadaEm: true },
+      where:  { motoId: req.params.id, saidaEm: { gte: inicio, lte: fim } },
+      select: { id: true, notaFiscal: true, status: true, saidaEm: true, chegadaEm: true, retornoIniciadoEm: true, finalizadoEm: true },
     })
 
     const resultado = grupos.map((pts, i) => {
-      const inicioViagem = new Date(pts[0].registradoEm)
-      const fimViagem    = new Date(pts[pts.length - 1].registradoEm)
+      const inicioV = new Date(pts[0].registradoEm)
+      const fimV    = new Date(pts[pts.length - 1].registradoEm)
+      const km      = calcularKmGrupo(pts)
 
-      // Calcula km do trajeto
-      let km = 0
-      for (let j = 1; j < pts.length; j++) {
-        km += calcularDistanciaKm(pts[j - 1].lat, pts[j - 1].lng, pts[j].lat, pts[j].lng)
-      }
+      // Verifica se algum ponto tem entregaId
+      const entregaIdNoPonto = pts.find(p => p.entregaId)?.entregaId
 
-      // Vincula entrega que ocorreu durante essa viagem
       const entregaVinculada = entregas.find(e => {
+        if (entregaIdNoPonto && e.id === entregaIdNoPonto) return true
         const s = e.saidaEm ? new Date(e.saidaEm) : null
-        const c = e.chegadaEm ? new Date(e.chegadaEm) : fimViagem
-        return s && s >= inicioViagem && s <= fimViagem
+        const c = e.finalizadoEm ? new Date(e.finalizadoEm) : (e.chegadaEm ? new Date(e.chegadaEm) : fimV)
+        return s && s <= fimV && c >= inicioV
       }) || null
 
       return {
-        id:       i + 1,
-        inicio:   pts[0].registradoEm,
-        fim:      pts[pts.length - 1].registradoEm,
-        km:       parseFloat(km.toFixed(2)),
-        pontos:   pts.map(p => ({ lat: p.lat, lng: p.lng })),
-        entrega:  entregaVinculada,
+        id:          i + 1,
+        inicio:      pts[0].registradoEm,
+        fim:         pts[pts.length - 1].registradoEm,
+        km:          parseFloat(km.toFixed(2)),
+        pontos:      pts.map(p => ({ lat: p.lat, lng: p.lng })),
+        entrega:     entregaVinculada,
+        autorizada:  entregaVinculada !== null,
       }
     })
 
@@ -173,6 +153,109 @@ const viagens = async (req, res) => {
     console.error(err)
     return res.status(500).json({ erro: 'Erro ao buscar viagens' })
   }
+}
+
+// GET /api/motos/:id/viagens-nao-autorizadas?data=2024-01-15
+// Retorna viagens SEM entrega vinculada (uso não autorizado)
+const viagensNaoAutorizadas = async (req, res) => {
+  try {
+    const data   = req.query.data || new Date().toISOString().split('T')[0]
+    const inicio = new Date(`${data}T00:00:00`)
+    const fim    = new Date(`${data}T23:59:59`)
+
+    // Só posições SEM entrega vinculada e com velocidade > 0
+    const posicoes = await prisma.posicao.findMany({
+      where:   {
+        motoId:    req.params.id,
+        entregaId: null,
+        registradoEm: { gte: inicio, lte: fim },
+        velocidade: { gt: 2 }, // ignora posições paradas
+      },
+      orderBy: { registradoEm: 'asc' },
+      select:  { lat: true, lng: true, velocidade: true, registradoEm: true },
+    })
+
+    if (posicoes.length === 0) return res.json([])
+
+    const PAUSA_MS = 5 * 60 * 1000
+    const grupos = segmentarViagens(posicoes, PAUSA_MS)
+
+    const resultado = grupos
+      .map((pts, i) => {
+        const km = calcularKmGrupo(pts)
+        if (km < 0.1) return null // ignora deslocamentos mínimos
+        return {
+          id:      i + 1,
+          inicio:  pts[0].registradoEm,
+          fim:     pts[pts.length - 1].registradoEm,
+          km:      parseFloat(km.toFixed(2)),
+          pontos:  pts.map(p => ({ lat: p.lat, lng: p.lng })),
+          autorizada: false,
+        }
+      })
+      .filter(Boolean)
+
+    return res.json(resultado)
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ erro: 'Erro ao buscar viagens não autorizadas' })
+  }
+}
+
+// GET /api/motos/:id/km-nao-autorizado?data=2024-01-15
+// Retorna total de km não autorizado no dia
+const kmNaoAutorizado = async (req, res) => {
+  try {
+    const data   = req.query.data || new Date().toISOString().split('T')[0]
+    const inicio = new Date(`${data}T00:00:00`)
+    const fim    = new Date(`${data}T23:59:59`)
+
+    const posicoes = await prisma.posicao.findMany({
+      where:   {
+        motoId:    req.params.id,
+        entregaId: null,
+        registradoEm: { gte: inicio, lte: fim },
+        velocidade: { gt: 2 },
+      },
+      orderBy: { registradoEm: 'asc' },
+      select:  { lat: true, lng: true, registradoEm: true },
+    })
+
+    let kmTotal = 0
+    for (let i = 1; i < posicoes.length; i++) {
+      const diff = new Date(posicoes[i].registradoEm) - new Date(posicoes[i - 1].registradoEm)
+      if (diff < 5 * 60 * 1000) {
+        kmTotal += calcularDistanciaKm(posicoes[i-1].lat, posicoes[i-1].lng, posicoes[i].lat, posicoes[i].lng)
+      }
+    }
+
+    return res.json({ km: parseFloat(kmTotal.toFixed(2)) })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ erro: 'Erro ao calcular km não autorizado' })
+  }
+}
+
+// ─── Helpers ─────────────────────────────────────────
+
+function segmentarViagens(posicoes, pausaMs) {
+  const grupos = []
+  let grupo = [posicoes[0]]
+  for (let i = 1; i < posicoes.length; i++) {
+    const diff = new Date(posicoes[i].registradoEm) - new Date(posicoes[i - 1].registradoEm)
+    if (diff > pausaMs) { grupos.push(grupo); grupo = [] }
+    grupo.push(posicoes[i])
+  }
+  grupos.push(grupo)
+  return grupos
+}
+
+function calcularKmGrupo(pts) {
+  let km = 0
+  for (let j = 1; j < pts.length; j++) {
+    km += calcularDistanciaKm(pts[j-1].lat, pts[j-1].lng, pts[j].lat, pts[j].lng)
+  }
+  return km
 }
 
 function calcularDistanciaKm(lat1, lng1, lat2, lng2) {
@@ -187,4 +270,4 @@ function calcularDistanciaKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-module.exports = { listar, criar, atualizar, ultimaPosicao, trajeto, posicoesLive, viagens }
+module.exports = { listar, criar, atualizar, ultimaPosicao, trajeto, posicoesLive, viagens, viagensNaoAutorizadas, kmNaoAutorizado }
