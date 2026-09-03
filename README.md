@@ -1,8 +1,8 @@
-# Finding-motorcycle
+﻿# Finding-motorcycle
 
-Aplicação full stack para encontrar motocicletas, com frontend e backend separados e orquestrados via Docker Compose. Deploy em produção na Vercel.
+AplicaÃ§Ã£o full stack para encontrar motocicletas, com frontend e backend separados e orquestrados via Docker Compose. Deploy em produÃ§Ã£o na Vercel.
 
-🔗 Demo: https://finding-motorcycle.vercel.app
+ðŸ”— Demo: https://finding-motorcycle.vercel.app
 
 ## Stack
 
@@ -15,16 +15,16 @@ Aplicação full stack para encontrar motocicletas, com frontend e backend separ
 
 ```
 .
-├── backend/
-├── frontend/
-├── docker/
-└── docker-compose.yml
+â”œâ”€â”€ backend/
+â”œâ”€â”€ frontend/
+â”œâ”€â”€ docker/
+â””â”€â”€ docker-compose.yml
 ```
 
 ## Como rodar localmente
 
 ```bash
-git clone https://github.com/EduardoAlkimim/Finding-motorcycle.git
+git clone https://github.com/EduardoAlkimim/finding-motorcycle.git
 cd Finding-motorcycle
 docker-compose up --build
 ```
